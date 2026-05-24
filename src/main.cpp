@@ -19,6 +19,7 @@ typedef struct yy_buffer_state *YY_BUFFER_STATE;            // Flex type for han
 extern YY_BUFFER_STATE yy_scan_string(const char * str);    // tells Flex to read from the string not a file
 extern void yy_delete_buffer(YY_BUFFER_STATE buffer);       // cleans up the memory used by string buffer
 extern std::vector<Statement*> root_statements;             // global vector where Bison stores parsed SQL object (AST)
+extern int yylineno;
 
 // global data structures
 std::string getDatabasePath() {
@@ -45,6 +46,8 @@ void executeSQL(const char* input) {
     // clearing vector before next query
     root_statements.clear();
 
+    yylineno = 1;
+
     // thsi creates a temporary buffer that allows Flex to read a string we wyped in the console in GUI
     YY_BUFFER_STATE buffer = yy_scan_string(input);
     if (yyparse() == 0) { // yyparse() function returs 0 when the SQL query is correct
@@ -56,7 +59,7 @@ void executeSQL(const char* input) {
         }
         root_statements.clear();
     } else {
-        gui_log.push_back("Error: Syntax Error!");
+        /* ignore */
     }
     yy_delete_buffer(buffer);
 }

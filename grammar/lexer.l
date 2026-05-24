@@ -24,6 +24,8 @@ int yylex();
 %option noyywrap
 /* Make keywords case-insensitive */
 %option caseless
+/* automatic line counting by Flex */
+%option yylineno
 
 %% /* -=-=-=- TOKENS -=-=-=- */
     /* === DQL (Data Query Language) KEYWORDS (Queries) === */
@@ -133,7 +135,6 @@ int yylex();
 }
 
     /* === ERROR HANDLING & WHITESPACE === */
-[ \t\n\r]+    { /* ignore */ }
+[ \t\n\r]+  { /* ignore */ }
 .           { std::cerr << "Unknown char " << yytext << std::endl; }
-
 %%

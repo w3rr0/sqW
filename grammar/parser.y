@@ -34,6 +34,15 @@ void yyerror(const char *s);
 
 /** @brief Pointer to the resulting Statement object after parsing */
 std::vector<Statement*> root_statements;
+
+/** @brief Log vector used to display execution status and errors */
+extern std::vector<std::string> gui_log;
+
+/** @brief Text string of the currently matched token passed from Flex */
+extern char* yytext;
+
+/** @brief Line counter managed automatically by Flex*/
+extern int yylineno;
 %}
 
 /** @brief Union defining types for tokens and rules */
@@ -405,5 +414,15 @@ value:
  * Automatically called by Bison when it encounters an invalid token sequence.
  */
 void yyerror(const char *s) {
-    /* blank */
+    std::string token;
+    if (yytext) {
+        token = yytext;
+    } else {
+        token = "EOF";
+    }
+
+    std::string errMsg = "Syntax Error at line " + std::to_string(yylineno) +
+                         " near token '" + token + "'";
+
+    gui_log.push_back("Error: " + errMsg);
 }
