@@ -134,30 +134,45 @@ Projekt opiera się na nowoczesnych narzędziach programistycznych i bibliotekac
 Poniżej znajdują się przykładowe zapytania każdego typu tworzące bazę i manipulujące danymi:
 
 ```sql
--- 1. Tworzenie tabeli
-CREATE TABLE klienci (id INT, imie VARCHAR, nazwisko VARCHAR, miasto VARCHAR);
+-- 1. Tworzenie tabeli z kompletem typów danych
+CREATE TABLE klienci (id INT, imie STRING, nazwisko STRING, miasto STRING, aktywny BOOL);
 
--- 2. Dodawanie danych
-INSERT INTO klienci VALUES (1, 'Jan', 'Kowalski', 'Kraków'), 
-                           (2, 'Anna', 'Nowak', 'Warszawa');
+-- 2. Dodawanie rekordów do bazy
+INSERT INTO klienci VALUES (1, 'Jan', 'Kowalski', 'Krakow', 1),
+                           (2, 'Anna', 'Nowak', 'Warszawa', 1),
+                           (3, 'Piotr', 'Zielinski', 'Krakow', 0),
+                           (4, 'Katarzyna', 'Mazurek', 'Poznan', 1),
+                           (5, 'Michal', 'Wisniewski', 'Gdansk', 1),
+                           (6, 'Barbara', 'Wojcik', 'Katowice', 0);
 
 -- 3. Aktualizacja danych
-UPDATE klienci SET imie = 'Janusz' WHERE id = 1;
+UPDATE klienci SET imie = 'Krzysztof' WHERE id = 1;
 
--- 4. Zapytanie SELECT z warunkiem WHERE
-SELECT imie FROM klienci WHERE imie LIKE '%a' AND id BETWEEN 1 AND 10 
-                         ORDER BY id DESC LIMIT 5;
+-- 4. Zapytanie SELECT z filtrowaniem, sortowaniem i limitami
+SELECT imie, nazwisko, miasto FROM klienci
+WHERE imie LIKE '%a' AND id BETWEEN 1 AND 10
+ORDER BY id DESC LIMIT 2;
 
 -- 5. Usuwanie kolumny z istniejącej tabeli
-ALTER TABLE klienci DROP COLUMN miasto;
+ALTER TABLE klienci DROP COLUMN aktywny;
 
--- 6. Dodawanie kolumny do istniejącej tabeli (wypełni się NULLAMI)
-ALTER TABLE klienci ADD (COLUMN) premia NUMERIC;
+-- 6. Dodawanie nowej kolumny (wypełni się domyślnie wartościami NULL)
+ALTER TABLE klienci ADD premia NUMERIC;
 
---7 Usuwanie rekordów z tabeli
-DELETE FROM klienci WHERE miasto IN ('Kraków', 'Warszawa', 'Katowice', 'Poznań');
+-- 7. Przypisanie premii wybranym pracownikom przed filtrowaniem NULLi
+UPDATE klienci SET premia = 250.50 WHERE id = 2;
+UPDATE klienci SET premia = 500.00 WHERE id = 4;
 
---8 Usuwanie tabeli z bazy
+-- 7a. Test filtrowania IS NULL / IS NOT NULL
+SELECT imie, nazwisko, premia FROM klienci WHERE premia IS NOT NULL;
+
+-- 8. Usuwanie rekordów z tabeli na podstawie listy miast
+DELETE FROM klienci WHERE miasto IN ('Krakow', 'Warszawa', 'Katowice', 'Poznan');
+
+-- 9. Wyświetlenie tego, co zostało w bazie
+SELECT * FROM klienci;
+
+-- 10. Czyszczenie bazy - usunięcie tabeli
 DROP TABLE klienci;
 ```
 ---
