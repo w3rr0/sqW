@@ -150,8 +150,8 @@ UPDATE klienci SET imie = 'Krzysztof' WHERE id = 1;
 
 -- 4. Zapytanie SELECT z filtrowaniem, sortowaniem i limitami
 SELECT imie, nazwisko, miasto FROM klienci
-WHERE imie LIKE '%a' AND id BETWEEN 1 AND 10
-ORDER BY id DESC LIMIT 2;
+WHERE imie LIKE '%a' AND id BETWEEN 1 AND 4
+ORDER BY id DESC LIMIT 1;
 
 -- 5. Usuwanie kolumny z istniejącej tabeli
 ALTER TABLE klienci DROP COLUMN aktywny;
