@@ -70,7 +70,7 @@ void Table::insertRow(const std::vector<Cell>& row) {
 
 std::vector<Cell> Table::getRow(size_t rowIndex) const {
     if (rowIndex >= getRowCount()) {
-        throw std::out_of_range("Błąd: Wiersz o indeksie " + std::to_string(rowIndex) + " nie istnieje.");
+        throw std::out_of_range("Error: Row with index " + std::to_string(rowIndex) + " does not exist.");
     }
 
     std::vector<Cell> resultRow;
