@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include "storage/Cell.hpp"
+#include <set>
 #include <string>
 #include <stdexcept>
 
@@ -61,4 +62,59 @@ TEST(CellTest, NullComparisonThrows) {
     Cell cNull;
     
     EXPECT_THROW(c1.checkNullComparison(cNull), std::invalid_argument);
+}
+
+TEST(CellTest, NullEqualsNull) {
+    EXPECT_TRUE(Cell() == Cell());
+}
+
+TEST(CellTest, NullIsNotEqualToValue) {
+    EXPECT_FALSE(Cell() == Cell(0));
+    EXPECT_FALSE(Cell(0) == Cell());
+}
+
+TEST(CellTest, NullIsLessThanAnyValue) {
+    EXPECT_TRUE(Cell() < Cell(0));
+    EXPECT_FALSE(Cell(0) < Cell());
+    EXPECT_FALSE(Cell() < Cell());
+}
+
+TEST(CellTest, IntAndDoubleAreComparable) {
+    EXPECT_TRUE(Cell(1) == Cell(1.0));
+    EXPECT_FALSE(Cell(1) < Cell(1.0));
+    EXPECT_FALSE(Cell(1.0) < Cell(1));
+
+    EXPECT_TRUE(Cell(1) < Cell(2.0));
+    EXPECT_TRUE(Cell(2.0) < Cell(3));
+}
+
+TEST(CellTest, DifferentTypesAreNotEqual) {
+    EXPECT_FALSE(Cell(1) == Cell(std::string("1")));
+    EXPECT_TRUE(Cell(1) != Cell(std::string("1")));
+}
+
+TEST(CellTest, OrderingDifferentTypesThrows) {
+    EXPECT_THROW({
+        bool result = Cell(1) < Cell(std::string("1"));
+        (void)result;
+    }, std::invalid_argument);
+}
+
+TEST(CellTest, DerivedOperatorsFollowTotalOrder) {
+    EXPECT_TRUE(Cell() <= Cell());
+    EXPECT_TRUE(Cell() <= Cell(1));
+    EXPECT_FALSE(Cell(1) <= Cell());
+
+    EXPECT_TRUE(Cell(1) >= Cell());
+    EXPECT_FALSE(Cell() >= Cell(1));
+
+    EXPECT_FALSE(Cell() != Cell());
+    EXPECT_TRUE(Cell() != Cell(1));
+    EXPECT_FALSE(Cell(1) != Cell(1.0));
+}
+
+TEST(CellTest, SetTreatsNullsAsOneValue) {
+    std::set<Cell> values{Cell(), Cell(), Cell(0), Cell(1)};
+
+    EXPECT_EQ(values.size(), 3u);
 }

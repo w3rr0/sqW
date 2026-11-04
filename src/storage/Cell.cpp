@@ -18,7 +18,9 @@ void Cell::checkNullComparison(const Cell& other) const {
 }
 
 bool Cell::operator==(const Cell& other) const {
-    checkNullComparison(other);
+    if (isNull() || other.isNull()) {
+        return isNull() && other.isNull();
+    }
 
     if (getType() == Type::INT && other.getType() == Type::DOUBLE) {
         return as<int>() == other.as<double>();
@@ -36,7 +38,9 @@ bool Cell::operator==(const Cell& other) const {
 }
 
 bool Cell::operator<(const Cell& other) const {
-    checkNullComparison(other);
+    if (isNull() || other.isNull()) {
+        return isNull() && !other.isNull();
+    }
 
     if (getType() == Type::INT && other.getType() == Type::DOUBLE) {
         return as<int>() < other.as<double>();
