@@ -3,6 +3,8 @@
 #include <set>
 #include <string>
 #include <stdexcept>
+#include <unordered_map>
+#include <unordered_set>
 
 TEST(CellTest, DefaultConstructorIsNULL) {
     Cell cell;
@@ -117,4 +119,64 @@ TEST(CellTest, SetTreatsNullsAsOneValue) {
     std::set<Cell> values{Cell(), Cell(), Cell(0), Cell(1)};
 
     EXPECT_EQ(values.size(), 3u);
+}
+
+
+TEST(CellTest, HashOfNullsMatches) {
+    const std::hash<Cell> hashCell;
+
+    EXPECT_EQ(hashCell(Cell()), hashCell(Cell()));
+}
+
+TEST(CellTest, HashOfEqualValuesMatches) {
+    const std::hash<Cell> hashCell;
+
+    EXPECT_EQ(hashCell(Cell(42)), hashCell(Cell(42)));
+    EXPECT_EQ(hashCell(Cell(3.14)), hashCell(Cell(3.14)));
+    EXPECT_EQ(hashCell(Cell(std::string("abc"))), hashCell(Cell(std::string("abc"))));
+    EXPECT_EQ(hashCell(Cell(true)), hashCell(Cell(true)));
+}
+
+TEST(CellTest, HashTreatsIntAndDoubleEqually) {
+    const std::hash<Cell> hashCell;
+
+    EXPECT_EQ(hashCell(Cell(0)), hashCell(Cell(0.0)));
+    EXPECT_EQ(hashCell(Cell(1)), hashCell(Cell(1.0)));
+    EXPECT_EQ(hashCell(Cell(-7)), hashCell(Cell(-7.0)));
+}
+
+TEST(CellTest, HashMatchesUnderlyingValueHash) {
+    const std::hash<Cell> hashCell;
+
+    EXPECT_EQ(hashCell(Cell(2.5)), std::hash<double>{}(2.5));
+    EXPECT_EQ(hashCell(Cell(std::string("abc"))), std::hash<std::string>{}(std::string("abc")));
+    EXPECT_EQ(hashCell(Cell(true)), std::hash<bool>{}(true));
+    EXPECT_EQ(hashCell(Cell(false)), std::hash<bool>{}(false));
+}
+
+TEST(CellTest, UnorderedSetGroupsNullsAndNumericEquivalents) {
+    std::unordered_set<Cell> values{
+        Cell(), Cell(),
+        Cell(1), Cell(1.0),
+        Cell(2)
+    };
+
+    EXPECT_EQ(values.size(), 3u);
+    EXPECT_EQ(values.count(Cell()), 1u);
+    EXPECT_EQ(values.count(Cell(1.0)), 1u);
+}
+
+TEST(CellTest, UnorderedMapKeyedByCell) {
+    std::unordered_map<Cell, std::string> map;
+
+    map[Cell()] = "null";
+    map[Cell(1)] = "one";
+    map[Cell(std::string("key"))] = "text";
+    map[Cell(true)] = "bool";
+
+    EXPECT_EQ(map.at(Cell()), "null");
+    EXPECT_EQ(map.at(Cell(1.0)), "one");
+    EXPECT_EQ(map.at(Cell(std::string("key"))), "text");
+    EXPECT_EQ(map.at(Cell(true)), "bool");
+    EXPECT_EQ(map.size(), 4u);
 }
