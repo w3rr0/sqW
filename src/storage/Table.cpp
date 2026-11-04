@@ -34,6 +34,7 @@ void Table::dropColumn(const std::string& colName) {
 
     if (it == columns.end()) {
         std::cout << "Error. ALTER TABLE: Column " << colName << " does not exist in table '" << name << "'" << std::endl;
+        return;
     }
 
     // removing certain column if exists
