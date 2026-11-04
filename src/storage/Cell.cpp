@@ -74,3 +74,14 @@ std::ostream& operator<<(std::ostream& os, const Cell& cell) {
 
     return os;
 }
+
+std::size_t std::hash<Cell>::operator()(const Cell &cell) const noexcept {
+    switch (cell.getType()) {
+        case Cell::NULL_TYPE:   return 0;
+        case Cell::INT:         return std::hash<double>{}(cell.as<int>());
+        case Cell::DOUBLE:      return std::hash<double>{}(cell.as<double>());
+        case Cell::TEXT:        return std::hash<std::string>{}(cell.as<std::string>());
+        case Cell::BOOL:        return std::hash<bool>{}(cell.as<bool>());
+        default:                throw std::runtime_error("Unsupported cell type");
+    }
+}

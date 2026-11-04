@@ -6,6 +6,7 @@
 #ifndef CELL_HPP
 #define CELL_HPP
 
+#include <functional>
 #include <variant>
 #include <string>
 #include <iostream>
@@ -119,6 +120,11 @@ private:
      * @brief The actual container holding the data.
      */
     ValueType value;
+};
+
+template<>
+struct std::hash<Cell> {
+    std::size_t operator()(const Cell& cell) const noexcept;
 };
 
 #endif
