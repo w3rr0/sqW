@@ -110,7 +110,7 @@ bool BetweenCondition::evaluate(const Table& table, const std::vector<Cell>& row
     Cell minL = createLiteralCell(valMin, table.getColumns()[idx].getType());
     Cell maxL = createLiteralCell(valMax, table.getColumns()[idx].getType());
 
-    return v >= minL && v <= maxL; // Korzystamy z operatorów Konrada
+    return v >= minL && v <= maxL;
 }
 
 void BetweenCondition::print() const { std::cout << column << " BETWEEN " << valMin << " AND " << valMax; }
