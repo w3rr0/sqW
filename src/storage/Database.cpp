@@ -43,6 +43,7 @@ Table& Database::getTable(const std::string& tableName) {
 
 std::vector<std::string> Database::getTableNames() const {
     std::vector<std::string> namesTab;
+    namesTab.reserve(tables.size());
     for (const auto& [n, table] : tables) {
         namesTab.push_back(n);
     }
