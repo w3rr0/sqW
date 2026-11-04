@@ -6,6 +6,10 @@ Cell::Type Cell::getType() const {
     return static_cast<Type>(value.index());
 }
 
+bool Cell::isNull() const {
+    return getType() == NULL_TYPE;
+}
+
 void Cell::checkNullComparison(const Cell& other) const {
     if (getType() == Type::NULL_TYPE || other.getType() == Type::NULL_TYPE) {
         // Should be interpreted as "UNKNOWN"

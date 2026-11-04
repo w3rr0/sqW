@@ -92,6 +92,11 @@ public:
     bool operator>=(const Cell& other) const { return !(*this < other); }
 
     /**
+     * Checks if the cell is NULL.
+     */
+    bool isNull() const;
+
+    /**
      * @brief Helper method to prevent invalid relational comparisons involving NULL.
      * @param other The other cell involved in the comparison.
      * @throws std::invalid_argument If either cell is NULL.
