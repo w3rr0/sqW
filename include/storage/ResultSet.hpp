@@ -2,9 +2,9 @@
 #define SQW_RESULT_HPP
 
 
-class Result {
+class ResultSet {
 public:
-    Result() = default;
+    ResultSet() = default;
 };
 
 
