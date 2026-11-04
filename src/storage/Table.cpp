@@ -18,7 +18,7 @@ void Table::addColumn(const std::string& colName, Cell::Type colType) {
 
     Column newCol(colName, colType);
 
-    size_t rowCount = getRowCount();
+    const size_t rowCount = getRowCount();
     for (size_t i = 0; i < rowCount; ++i) {
         // new Cells with default NULL TYPE -> for ALTER TABLE ADD COLUMN
         newCol.add(Cell());
@@ -29,7 +29,7 @@ void Table::addColumn(const std::string& colName, Cell::Type colType) {
 
 void Table::dropColumn(const std::string& colName) {
     // fidning name of the column to drop in the table
-    auto it = std::find_if(columns.begin(), columns.end(),
+    const auto it = std::find_if(columns.begin(), columns.end(),
         [&colName](const Column& col) { return col.getName() == colName; });
 
     if (it == columns.end()) {
@@ -50,8 +50,7 @@ void Table::insertRow(const std::vector<Cell>& row) {
 
     // Data types validation
     for (size_t i = 0; i < columns.size(); ++i) {
-        const Cell& cell = row[i];
-        if (cell.getType() != Cell::Type::NULL_TYPE && cell.getType() != columns[i].getType()) {
+        if (const Cell& cell = row[i]; cell.getType() != Cell::Type::NULL_TYPE && cell.getType() != columns[i].getType()) {
             throw std::invalid_argument(
                 "Type error in column '" + columns[i].getName() +
                 "': Expecting type " + std::to_string(static_cast<int>(columns[i].getType())) +
@@ -68,7 +67,7 @@ void Table::insertRow(const std::vector<Cell>& row) {
     deletedMask.push_back(false);
 }
 
-std::vector<Cell> Table::getRow(size_t rowIndex) const {
+std::vector<Cell> Table::getRow(const size_t rowIndex) const {
     if (rowIndex >= getRowCount()) {
         throw std::out_of_range("Error: Row with index " + std::to_string(rowIndex) + " does not exist.");
     }
@@ -89,7 +88,7 @@ Column& Table::getColumn(const std::string& colName) {
 }
 
 const Column& Table::getColumn(const std::string& colName) const {
-    auto it = std::find_if(columns.begin(), columns.end(),
+    const auto it = std::find_if(columns.begin(), columns.end(),
         [&colName](const Column& col) { return col.getName() == colName; }
     );
 
@@ -100,7 +99,7 @@ const Column& Table::getColumn(const std::string& colName) const {
     throw std::invalid_argument("Error: Column '" + colName + "' don't exist in table '" + name + "'.");
 }
 
-void Table::updateCell(size_t rowIndex, const std::string& colName, const Cell& newValue) {
+void Table::updateCell(const size_t rowIndex, const std::string& colName, const Cell& newValue) {
     if (rowIndex >= getRowCount()) {
         throw std::out_of_range("Error UPDATE: row with index" + std::to_string(rowIndex) + " does not exist in table '" + name + "'.");
     }
@@ -110,7 +109,7 @@ void Table::updateCell(size_t rowIndex, const std::string& colName, const Cell& 
     col.set(rowIndex, newValue);
 }
 
-void Table::deleteRow(size_t rowIndex) {
+void Table::deleteRow(const size_t rowIndex) {
     if (rowIndex >= getRowCount()) {
         throw std::out_of_range("Error DELETE: Row index " + std::to_string(rowIndex) + " out of range.");
     }
@@ -118,7 +117,7 @@ void Table::deleteRow(size_t rowIndex) {
     deletedMask[rowIndex] = true;
 }
 
-bool Table::isDeleted(size_t rowIndex) const {
+bool Table::isDeleted(const size_t rowIndex) const {
     if (rowIndex >= deletedMask.size()) { // Should not happen
         return false;
     }
@@ -138,9 +137,9 @@ void Table::vacuum() {
     }
 
     size_t aliveCount = 0;
-    for (bool isDeleted : deletedMask) {
+    for (const bool isDeleted : deletedMask) {
         if (!isDeleted) aliveCount++;
     }
 
-    deletedMask = std::vector<bool>(aliveCount, false);
+    deletedMask = std::vector(aliveCount, false);
 }
