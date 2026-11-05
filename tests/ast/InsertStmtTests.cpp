@@ -64,3 +64,25 @@ TEST_F(InsertStmtTest, ExecuteLogsErrorOnInvalidType) {
     ASSERT_FALSE(gui_log.empty());
     EXPECT_NE(gui_log.back().find("Error"), std::string::npos);
 }
+
+TEST_F(InsertStmtTest, ExecuteInsertsWithColumnListAndSetsNull) {
+    db.createTable("products");
+    Table& t = db.getTable("products");
+    t.addColumn("id", Cell::INT);
+    t.addColumn("name", Cell::TEXT);
+    t.addColumn("price", Cell::DOUBLE);
+
+    // Insert specifying only (price, id) in custom order, omitting 'name'
+    InsertStmt stmt("products", {"price", "id"}, std::vector<std::string>{"19.99", "1"});
+    stmt.execute();
+
+    ASSERT_EQ(t.getRowCount(), 1);
+    std::vector<Cell> row = t.getRow(0);
+
+    // id is at index 0
+    EXPECT_EQ(row[0].as<int>(), 1);
+    // name is at index 1 and must be NULL
+    EXPECT_TRUE(row[1].isNull());
+    // price is at index 2
+    EXPECT_DOUBLE_EQ(row[2].as<double>(), 19.99);
+}

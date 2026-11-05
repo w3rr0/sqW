@@ -51,11 +51,23 @@ void SelectStmt::execute() {
         }
 
         // ORDER BY
-        if (!orderByColumn.empty()) {
-            size_t sortIdx = getColIdx(table, orderByColumn);
+        if (!orderByList.empty()) {
+            struct ResolvedOrder {
+                size_t colIdx;
+                bool isAsc;
+            };
+            std::vector<ResolvedOrder> resolved;
+            for (const auto& item : orderByList) {
+                resolved.push_back({getColIdx(table, item.column), item.isAscending});
+            }
+
             std::sort(filteredRows.begin(), filteredRows.end(), [&](const std::vector<Cell>& a, const std::vector<Cell>& b) {
-                if (isAscending) return a[sortIdx] < b[sortIdx];
-                return a[sortIdx] > b[sortIdx];
+                for (const auto& r : resolved) {
+                    if (a[r.colIdx] == b[r.colIdx]) continue;
+                    if (r.isAsc) return a[r.colIdx] < b[r.colIdx];
+                    return a[r.colIdx] > b[r.colIdx];
+                }
+                return false;
             });
         }
 
@@ -97,33 +109,83 @@ void SelectStmt::execute() {
             size_t colIdx = getColIdx(table, aggColumn);
 
             if (aggType == Aggregate::COUNT) {
-                std::cout << "COUNT: " << filteredRows.size() << std::endl;
-                res_ss << "COUNT(" << aggColumn << "): " << filteredRows.size();
+                size_t nonNullCount = 0;
+                for (const auto& r : filteredRows) {
+                    if (!r[colIdx].isNull()) nonNullCount++;
+                }
+                std::cout << "COUNT(" << aggColumn << "): " << nonNullCount << std::endl;
+                res_ss << "COUNT(" << aggColumn << "): " << nonNullCount;
             }
-            else if (!filteredRows.empty()) {
-                if (aggType == Aggregate::SUM) {
-                    double sum = 0;
-                    for (const auto& r : filteredRows) {
-                        const Cell& c = r[colIdx];
-                        // summing as int or double
-                        if (c.getType() == Cell::INT) sum += c.as<int>();
-                        else if (c.getType() == Cell::DOUBLE) sum += c.as<double>();
+            else if (aggType == Aggregate::AVG) {
+                double sum = 0;
+                size_t nonNullCount = 0;
+                for (const auto& r : filteredRows) {
+                    const Cell& c = r[colIdx];
+                    if (c.isNull()) continue;
+                    if (c.getType() == Cell::INT) {
+                        sum += c.as<int>();
+                        nonNullCount++;
+                    } else if (c.getType() == Cell::DOUBLE) {
+                        sum += c.as<double>();
+                        nonNullCount++;
                     }
+                }
+                if (nonNullCount == 0) {
+                    std::cout << "AVG(" << aggColumn << "): NULL" << std::endl;
+                    res_ss << "AVG(" << aggColumn << "): NULL";
+                } else {
+                    double avg = sum / static_cast<double>(nonNullCount);
+                    std::cout << "AVG(" << aggColumn << "): " << avg << std::endl;
+                    res_ss << "AVG(" << aggColumn << "): " << avg;
+                }
+            }
+            else if (aggType == Aggregate::SUM) {
+                double sum = 0;
+                bool hasNonNull = false;
+                for (const auto& r : filteredRows) {
+                    const Cell& c = r[colIdx];
+                    if (c.isNull()) continue;
+                    if (c.getType() == Cell::INT) {
+                        sum += c.as<int>();
+                        hasNonNull = true;
+                    } else if (c.getType() == Cell::DOUBLE) {
+                        sum += c.as<double>();
+                        hasNonNull = true;
+                    }
+                }
+                if (!hasNonNull) {
+                    std::cout << "SUM(" << aggColumn << "): NULL" << std::endl;
+                    res_ss << "SUM(" << aggColumn << "): NULL";
+                } else {
                     std::cout << "SUM(" << aggColumn << "): " << sum << std::endl;
                     res_ss << "SUM(" << aggColumn << "): " << sum;
                 }
-                else if (aggType == Aggregate::MIN || aggType == Aggregate::MAX) {
-                    Cell result = filteredRows[0][colIdx]; // first Cell is both min and max at first
+            }
+            else if (aggType == Aggregate::MIN || aggType == Aggregate::MAX) {
+                Cell result;
+                bool foundFirst = false;
 
-                    for (const auto& r : filteredRows) {
-                        const Cell& current = r[colIdx];
+                for (const auto& r : filteredRows) {
+                    const Cell& current = r[colIdx];
+                    if (current.isNull()) continue;
+
+                    if (!foundFirst) {
+                        result = current;
+                        foundFirst = true;
+                    } else {
                         if (aggType == Aggregate::MIN) {
-                            if (current < result) result = current; // operator <
+                            if (current < result) result = current;
                         } else {
-                            if (current > result) result = current; // operator >
+                            if (current > result) result = current;
                         }
                     }
-                    std::string label = (aggType == Aggregate::MIN) ? "MIN" : "MAX";
+                }
+
+                std::string label = (aggType == Aggregate::MIN) ? "MIN" : "MAX";
+                if (!foundFirst) {
+                    std::cout << label << "(" << aggColumn << "): NULL" << std::endl;
+                    res_ss << label << "(" << aggColumn << "): NULL";
+                } else {
                     std::cout << label << "(" << aggColumn << "): " << result << std::endl;
                     res_ss << label << "(" << aggColumn << "): " << result;
                 }

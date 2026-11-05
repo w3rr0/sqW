@@ -162,3 +162,81 @@ TEST_F(SelectStmtExecutionTest, ExecuteLogsErrorForMissingColumn) {
     ASSERT_FALSE(gui_log.empty());
     EXPECT_NE(gui_log.back().find("SELECT failed"), std::string::npos);
 }
+
+TEST_F(SelectStmtExecutionTest, ExecuteAggregationAvg) {
+    SelectStmt stmt("employees", {});
+    stmt.setAggregate(SelectStmt::Aggregate::AVG, "salary");
+
+    stmt.execute();
+
+    ASSERT_EQ(gui_headers[0], "RESULT");
+    // sum is 18000 across 5 employees, avg is 3600
+    EXPECT_NE(gui_results[0][0].find("3600"), std::string::npos);
+}
+
+TEST_F(SelectStmtExecutionTest, ExecuteMultiColumnOrderBy) {
+    SelectStmt stmt("employees", {"name", "salary"});
+    stmt.setOrderList({{"name", true}, {"salary", false}}); // name ASC, salary DESC
+
+    stmt.execute();
+
+    ASSERT_EQ(gui_results.size(), 5);
+    // Adam (5000) should come before Adam (4500)
+    EXPECT_EQ(gui_results[0][0], "Adam");
+    EXPECT_EQ(gui_results[0][1], "5000");
+
+    EXPECT_EQ(gui_results[1][0], "Adam");
+    EXPECT_EQ(gui_results[1][1], "4500");
+
+    EXPECT_EQ(gui_results[2][0], "Ewa");
+    EXPECT_EQ(gui_results[3][0], "Jan");
+    EXPECT_EQ(gui_results[4][0], "Maja");
+}
+
+TEST_F(SelectStmtExecutionTest, ExecuteAggregatesIgnoreNulls) {
+    db.createTable("nullable_table");
+    Table& t = db.getTable("nullable_table");
+    t.addColumn("val", Cell::DOUBLE);
+
+    // Row 0 is NULL (crucial test for MIN/MAX initialization)
+    t.insertRow({Cell()});
+    t.insertRow({Cell(100.0)});
+    t.insertRow({Cell()});
+    t.insertRow({Cell(300.0)});
+
+    // COUNT(*) should be 4
+    SelectStmt countStar("nullable_table", {});
+    countStar.setAggregate(SelectStmt::Aggregate::COUNT, "*");
+    countStar.execute();
+    EXPECT_NE(gui_results[0][0].find("4"), std::string::npos);
+
+    // COUNT(val) should be 2 (ignoring the 2 NULLs)
+    SelectStmt countCol("nullable_table", {});
+    countCol.setAggregate(SelectStmt::Aggregate::COUNT, "val");
+    countCol.execute();
+    EXPECT_NE(gui_results[0][0].find("2"), std::string::npos);
+
+    // SUM(val) should be 400
+    SelectStmt sumStmt("nullable_table", {});
+    sumStmt.setAggregate(SelectStmt::Aggregate::SUM, "val");
+    sumStmt.execute();
+    EXPECT_NE(gui_results[0][0].find("400"), std::string::npos);
+
+    // AVG(val) should be 200 (400 / 2)
+    SelectStmt avgStmt("nullable_table", {});
+    avgStmt.setAggregate(SelectStmt::Aggregate::AVG, "val");
+    avgStmt.execute();
+    EXPECT_NE(gui_results[0][0].find("200"), std::string::npos);
+
+    // MIN(val) should be 100, not NULL
+    SelectStmt minStmt("nullable_table", {});
+    minStmt.setAggregate(SelectStmt::Aggregate::MIN, "val");
+    minStmt.execute();
+    EXPECT_NE(gui_results[0][0].find("100"), std::string::npos);
+
+    // MAX(val) should be 300
+    SelectStmt maxStmt("nullable_table", {});
+    maxStmt.setAggregate(SelectStmt::Aggregate::MAX, "val");
+    maxStmt.execute();
+    EXPECT_NE(gui_results[0][0].find("300"), std::string::npos);
+}
