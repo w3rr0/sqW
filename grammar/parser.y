@@ -62,13 +62,15 @@ int num;
             SelectStmt::Aggregate type;
             char* col;
     } agg;
+    SelectStmt::OrderByItem* order_item;
+    std::vector<SelectStmt::OrderByItem>* order_list;
 }
 
 /* Tokens without values */
 %token SELECT FROM WHERE CREATE TABLE INSERT INTO VALUES UPDATE DELETE SET DROP COLUMN ALTER ADD SHOW TABLES
 %token TYPE_INT TYPE_STRING TYPE_BOOL TYPE_DOUBLE TYPE_FLOAT TYPE_NULL TYPE_NUMERIC
 %token IN LIKE BETWEEN AND OR IS NOT
-%token DISTINCT COUNT SUM MIN MAX
+%token DISTINCT COUNT SUM AVG MIN MAX
 %token ORDER BY ASC DESC LIMIT OFFSET
 %token LPAREN RPAREN COMMA SEMICOLON
 %token STAR EQ GT GE LE LT NEQ
@@ -83,7 +85,9 @@ int num;
 %type <strings> id_list value_list columns
 %type <col_defs> column_defs
 %type <col_def> column_def
-%type <str> data_type value opt_order_by
+%type <str> data_type value
+%type <order_item> order_by_item
+%type <order_list> order_by_list opt_order_by
 %type <boolean> opt_distinct opt_asc_desc
 %type <agg> aggregate_func
 %type <multi_strings> values_lists
@@ -121,24 +125,24 @@ instruction:
 
 /** @brief Rule for SELECT statements with support for filters, sorting, and aggregation */
 select_stmt:
-    SELECT opt_distinct columns FROM ID where_clause opt_order_by opt_asc_desc optional_limit optional_offset{
-        // idxs: $1:SELECT, $2:opt_distinct, $3:columns, $4:FROM, $5:ID, $6:where_clause, $7:opt_order_by, $8:opt_asc_desc
+    SELECT opt_distinct columns FROM ID where_clause opt_order_by optional_limit optional_offset {
+        // idxs: $1:SELECT, $2:opt_distinct, $3:columns, $4:FROM, $5:ID, $6:where_clause, $7:opt_order_by, $8:optional_limit, $9:optional_offset
         auto* sel = new SelectStmt($5, *$3, $2);
 
         if ($6) sel->setWhere(std::unique_ptr<WhereClause>($6));
         if ($7) {
-            sel->setOrder($7, $8);
-            free($7);
+            sel->setOrderList(*$7);
+            delete $7;
         }
-        sel->limit = $9;
-        sel->offset = $10;
+        sel->limit = $8;
+        sel->offset = $9;
 
         $$ = sel;
         free($5); delete $3;
     }
-    | SELECT aggregate_func FROM ID where_clause opt_order_by opt_asc_desc optional_limit optional_offset {
+    | SELECT aggregate_func FROM ID where_clause opt_order_by optional_limit optional_offset {
         // $1:SELECT, $2:aggregate_func, $3:FROM, $4:ID, $5:where_clause,
-        // $6:opt_order_by, $7:opt_asc_desc, $8:optional_limit, $9:optional_offset
+        // $6:opt_order_by, $7:optional_limit, $8:optional_offset
 
         auto* stmt = new SelectStmt($4, {});
 
@@ -150,12 +154,12 @@ select_stmt:
 
         // ORDER BY
         if ($6) {
-            stmt->setOrder($6, $7);
-            free($6);
+            stmt->setOrderList(*$6);
+            delete $6;
         }
 
-        stmt->limit = $8;
-        stmt->offset = $9;
+        stmt->limit = $7;
+        stmt->offset = $8;
 
         $$ = stmt;
         free($4);
@@ -283,6 +287,12 @@ insert_stmt:
         delete $5;
         free($3);
     }
+    | INSERT INTO ID LPAREN id_list RPAREN VALUES values_lists {
+        $$ = new InsertStmt($3, *$5, *$8);
+        delete $5;
+        delete $8;
+        free($3);
+    }
     ;
 
 /** @brief Many lists of values to insert into table */
@@ -358,10 +368,32 @@ alter_table_stmt:
     }
     ;
 
+/** @brief single item in ORDER BY: column name with optional ASC/DESC */
+order_by_item:
+    ID opt_asc_desc {
+        $$ = new SelectStmt::OrderByItem{$1, $2};
+        free($1);
+    }
+    ;
+
+/** @brief comma-separated list of ORDER BY items */
+order_by_list:
+    order_by_item {
+        $$ = new std::vector<SelectStmt::OrderByItem>();
+        $$->push_back(*$1);
+        delete $1;
+    }
+    | order_by_list COMMA order_by_item {
+        $1->push_back(*$3);
+        $$ = $1;
+        delete $3;
+    }
+    ;
+
 /** @brief sorting (ORDER BY) function definitions */
 opt_order_by:
     /* blank */ { $$ = nullptr; }
-    | ORDER BY ID { $$ = $3; } //column name
+    | ORDER BY order_by_list { $$ = $3; }
     ;
 
 /** @brief optional option ASC / DESC used in ORDER BY function */
@@ -395,6 +427,7 @@ aggregate_func:
       COUNT LPAREN STAR RPAREN   { $$.type = SelectStmt::Aggregate::COUNT; $$.col = strdup("*"); }
     | COUNT LPAREN ID RPAREN     { $$.type = SelectStmt::Aggregate::COUNT; $$.col = $3; }
     | SUM LPAREN ID RPAREN       { $$.type = SelectStmt::Aggregate::SUM;   $$.col = $3; }
+    | AVG LPAREN ID RPAREN       { $$.type = SelectStmt::Aggregate::AVG;   $$.col = $3; }
     | MIN LPAREN ID RPAREN       { $$.type = SelectStmt::Aggregate::MIN;   $$.col = $3; }
     | MAX LPAREN ID RPAREN       { $$.type = SelectStmt::Aggregate::MAX;   $$.col = $3; }
     ;

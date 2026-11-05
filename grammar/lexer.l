@@ -66,6 +66,7 @@ int yylex();
     /* === AGGREGATE FUNCTIONS === */
 "COUNT"      { return COUNT; }
 "SUM"        { return SUM; }
+"AVG"        { return AVG; }
 "MIN"        { return MIN; }
 "MAX"        { return MAX; }
 

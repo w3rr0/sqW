@@ -18,7 +18,16 @@ public:
     /**
      * @brief Supported aggregate functions.
      */
-    enum class Aggregate { NONE, COUNT, SUM, MIN, MAX };
+    enum class Aggregate { NONE, COUNT, SUM, AVG, MIN, MAX };
+
+    /**
+     * @brief Representation of an ORDER BY clause item.
+     */
+    struct OrderByItem {
+        std::string column;
+        bool isAscending = true;
+    };
+
     /** @brief Maximum number of rows to return (-1 for no limit). */
     int limit;
     /** @brief Number of rows to skip before starting to return results. */
@@ -29,8 +38,7 @@ private:
     bool isDistinct;
     Aggregate aggType;
     std::string aggColumn = "";
-    std::string orderByColumn = "";
-    bool isAscending = true;
+    std::vector<OrderByItem> orderByList;
     std::unique_ptr<WhereClause> where;
 
 public:
@@ -48,19 +56,19 @@ public:
         this->offset = 0;
         this->aggType = Aggregate::NONE;
         this->aggColumn = "";
-        this->orderByColumn = "";
-        this->isAscending = true;
+        this->orderByList = {};
         this->where = nullptr;
     }
 
     /** * @brief getters */
-    std::string getTableName() { return tableName; }
-    std::vector<std::string> getColumns() { return columns; }
-    bool getDistinct() { return isDistinct; }
-    Aggregate getAggregate() { return aggType; }
-    std::string getAggColumn() { return aggColumn; }
-    std::string getOrderBy() { return orderByColumn; }
-    bool getAscending() { return isAscending; }
+    std::string getTableName() const { return tableName; }
+    const std::vector<std::string>& getColumns() const { return columns; }
+    bool getDistinct() const { return isDistinct; }
+    Aggregate getAggregate() const { return aggType; }
+    std::string getAggColumn() const { return aggColumn; }
+    std::string getOrderBy() const { return orderByList.empty() ? "" : orderByList[0].column; }
+    bool getAscending() const { return orderByList.empty() ? true : orderByList[0].isAscending; }
+    const std::vector<OrderByItem>& getOrderByList() const { return orderByList; }
 
     // setters
     /**
@@ -69,7 +77,13 @@ public:
      * @param col The column to aggregate.
      */
     void setAggregate(Aggregate type, std::string col) { aggType = type; aggColumn = std::move(col); }
-    void setOrder(std::string col, bool asc) { orderByColumn = std::move(col); isAscending = asc; }
+    void setOrder(std::string col, bool asc) {
+        orderByList.clear();
+        if (!col.empty()) {
+            orderByList.push_back({std::move(col), asc});
+        }
+    }
+    void setOrderList(std::vector<OrderByItem> list) { orderByList = std::move(list); }
     void setWhere(std::unique_ptr<WhereClause> w) { where = std::move(w); }
 
     /**
