@@ -10,14 +10,17 @@ void DeleteStmt::execute() {
         Table& table = db.getTable(tableName);
         int deleteCount = 0;
 
-        for (size_t i = 0; i < table.getRowCount(); i++) {
+        if (where) {
+            where->prepare(table);
+        }
+
+        const size_t totalRows = table.getRowCount();
+        for (size_t i = 0; i < totalRows; i++) {
             // skipping rows that are marked as deleted
             if (table.isDeleted(i)) continue;
 
-            std::vector<Cell> row = table.getRow(i);
-
-            // WHERE condition
-            if (!where || where->evaluate(table, row)) {
+            // WHERE condition evaluated directly by row index without allocating row
+            if (!where || where->evaluate(table, i)) {
                 table.deleteRow(i);
                 deleteCount++;
             }
