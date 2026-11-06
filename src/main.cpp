@@ -172,21 +172,44 @@ int main(int argc, char** argv) {
         const Utils::ThemeColors& tc = Utils::getCurrentThemeColors();
 
         // TOP HEADER BAR
+        ImGui::AlignTextToFramePadding();
         ImGui::TextColored(tc.brand, "sqW");
         ImGui::SameLine();
+        ImGui::AlignTextToFramePadding();
         ImGui::TextColored(tc.subtext, "Database: %s", db.getName().c_str());
         ImGui::SameLine();
+        ImGui::AlignTextToFramePadding();
         ImGui::TextColored(tc.statusOk, "Connected");
         ImGui::SameLine();
+        ImGui::AlignTextToFramePadding();
         ImGui::TextColored(tc.subtext, "| Theme:");
         ImGui::SameLine();
-        ImGui::SetNextItemWidth(150.0f);
+        ImGui::SetNextItemWidth(170.0f);
         if (ImGui::Combo("##ThemeSelector", &currentThemeIdx, themeNames, IM_ARRAYSIZE(themeNames))) {
             Utils::applyTheme(static_cast<Utils::Theme>(currentThemeIdx));
         }
 
-        // Top-right template shortcuts
-        ImGui::SameLine(ImGui::GetWindowWidth() - 410);
+        // Top-right template shortcuts (dynamically aligned to fit within the right boundary)
+        const ImGuiStyle& style = ImGui::GetStyle();
+        const ImVec2 szSelect = ImGui::CalcTextSize("+ SELECT", nullptr, true);
+        const ImVec2 szInsert = ImGui::CalcTextSize("+ INSERT", nullptr, true);
+        const ImVec2 szCreate = ImGui::CalcTextSize("+ CREATE", nullptr, true);
+        const ImVec2 szClear  = ImGui::CalcTextSize("Clear Editor", nullptr, true);
+
+        const float btnPadding = style.FramePadding.x * 2.0f;
+        const float wSelect = szSelect.x + btnPadding;
+        const float wInsert = szInsert.x + btnPadding;
+        const float wCreate = szCreate.x + btnPadding;
+        const float wClear  = szClear.x + btnPadding;
+        const float totalButtonsWidth = wSelect + wInsert + wCreate + wClear + (style.ItemSpacing.x * 3.0f);
+
+        float rightStartX = ImGui::GetWindowWidth() - style.WindowPadding.x - totalButtonsWidth;
+        if (rightStartX > ImGui::GetCursorPosX() + style.ItemSpacing.x) {
+            ImGui::SameLine(rightStartX);
+        } else {
+            ImGui::SameLine();
+        }
+
         if (ImGui::Button("+ SELECT")) {
             auto names = db.getTableNames();
             std::string sampleTable = names.empty() ? "table_name" : names[0];
