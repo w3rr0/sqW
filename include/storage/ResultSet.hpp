@@ -10,8 +10,8 @@ public:
 
     void addRow(std::vector<Cell> row);
 
-    std::vector<std::string> getHeaders();
-    std::vector<std::vector<Cell>> getRows();
+    const std::vector<std::string>& getHeaders();
+    const std::vector<std::vector<Cell>>& getRows();
 
 private:
     std::vector<std::string> headers;

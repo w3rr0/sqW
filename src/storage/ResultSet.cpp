@@ -10,10 +10,10 @@ void ResultSet::addRow(std::vector<Cell> row) {
     rows.push_back(std::move(row));
 }
 
-std::vector<std::string> ResultSet::getHeaders() {
+const std::vector<std::string>& ResultSet::getHeaders() {
     return headers;
 }
 
-std::vector<std::vector<Cell>> ResultSet::getRows() {
+const std::vector<std::vector<Cell>>& ResultSet::getRows() {
     return rows;
 }
