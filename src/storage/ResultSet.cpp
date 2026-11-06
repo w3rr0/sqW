@@ -1,5 +1,8 @@
 #include "../../include/storage/ResultSet.hpp"
 
+ResultSet::ResultSet(std::vector<std::string> headers)
+    : headers(std::move(headers)) {}
+
 ResultSet::ResultSet(std::vector<std::string> headers, std::vector<std::vector<Cell> > rows)
     : headers(std::move(headers)), rows(std::move(rows)) {}
 
