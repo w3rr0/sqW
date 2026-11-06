@@ -6,7 +6,6 @@
 
 class ResultSet {
 public:
-    ResultSet() = default;
     explicit ResultSet(std::vector<std::string> headers, std::vector<std::vector<Cell>> rows);
 
     void addRow(std::vector<Cell> row);
