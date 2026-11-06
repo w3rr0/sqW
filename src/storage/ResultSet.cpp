@@ -9,7 +9,7 @@ ResultSet::ResultSet(std::vector<std::string> headers, const std::vector<std::ve
     : headers(std::move(headers)) {
     rows.reserve(initialRows.size());
     for (auto row : initialRows) {
-        rows.push_back(std::move(row));
+        addRow(std::move(row));
     }
 }
 
