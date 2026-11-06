@@ -1,4 +1,4 @@
-#include "../../include/storage/ResultSet.hpp"
+#include "storage/ResultSet.hpp"
 
 ResultSet::ResultSet(std::vector<std::string> headers)
     : headers(std::move(headers)) {}
