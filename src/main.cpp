@@ -147,6 +147,14 @@ int main(int argc, char** argv) {
     bool hasExecuted = false;
     std::string saveStatusMsg = "";
 
+    static int currentThemeIdx = 0;
+    const char* themeNames[] = {
+        "Modern Dark",
+        "Classic Light",
+        "Warm Amber",
+        "Midnight Purple"
+    };
+
     // MAIN CONSOLE loop
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
@@ -161,15 +169,24 @@ int main(int argc, char** argv) {
         ImGui::Begin("MainLayout", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize |
                                             ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
 
+        const Utils::ThemeColors& tc = Utils::getCurrentThemeColors();
+
         // TOP HEADER BAR
-        ImGui::TextColored(ImVec4(0.40f, 0.65f, 1.0f, 1.0f), "sqW");
+        ImGui::TextColored(tc.brand, "sqW");
         ImGui::SameLine();
-        ImGui::TextColored(ImVec4(0.52f, 0.55f, 0.65f, 1.0f), "Database: %s", db.getName().c_str());
+        ImGui::TextColored(tc.subtext, "Database: %s", db.getName().c_str());
         ImGui::SameLine();
-        ImGui::TextColored(ImVec4(0.35f, 0.88f, 0.50f, 1.0f), "Connected");
+        ImGui::TextColored(tc.statusOk, "Connected");
+        ImGui::SameLine();
+        ImGui::TextColored(tc.subtext, "| Theme:");
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(150.0f);
+        if (ImGui::Combo("##ThemeSelector", &currentThemeIdx, themeNames, IM_ARRAYSIZE(themeNames))) {
+            Utils::applyTheme(static_cast<Utils::Theme>(currentThemeIdx));
+        }
 
         // Top-right template shortcuts
-        ImGui::SameLine(ImGui::GetWindowWidth() - 480);
+        ImGui::SameLine(ImGui::GetWindowWidth() - 410);
         if (ImGui::Button("+ SELECT")) {
             auto names = db.getTableNames();
             std::string sampleTable = names.empty() ? "table_name" : names[0];
@@ -207,7 +224,7 @@ int main(int argc, char** argv) {
             // TAB 1: QUERY & RESULTS
             if (ImGui::BeginTabItem("Query & Results")) {
                 ImGui::Spacing();
-                ImGui::TextColored(ImVec4(0.75f, 0.78f, 0.88f, 1.0f), "SQL Query Input (Cmd+Enter to execute):");
+                ImGui::TextColored(tc.subtext, "SQL Query Input (Cmd+Enter to execute):");
 
                 // Execute shortcut checking
                 bool ctrl_pressed = io.KeyCtrl || io.KeySuper;
@@ -222,12 +239,13 @@ int main(int argc, char** argv) {
 
                 // Run Query Button (Accent Color)
                 ImGui::Spacing();
-                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.25f, 0.44f, 0.88f, 1.00f));
-                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.32f, 0.52f, 0.98f, 1.00f));
-                ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.20f, 0.36f, 0.75f, 1.00f));
+                ImGui::PushStyleColor(ImGuiCol_Button, tc.accent);
+                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, tc.accentHovered);
+                ImGui::PushStyleColor(ImGuiCol_ButtonActive, tc.accentActive);
+                ImGui::PushStyleColor(ImGuiCol_Text, tc.executeBtnText);
 
                 bool executeTriggered = ImGui::Button("Execute Query (Cmd+Enter)", ImVec2(-FLT_MIN, 32)) || (is_input_focused && shortcut_pressed);
-                ImGui::PopStyleColor(3);
+                ImGui::PopStyleColor(4);
 
                 if (executeTriggered && strlen(sql_input) > 0) {
                     auto tStart = std::chrono::high_resolution_clock::now();
@@ -245,9 +263,9 @@ int main(int argc, char** argv) {
                 ImGui::Separator();
                 if (hasExecuted) {
                     if (!gui_error.empty()) {
-                        ImGui::TextColored(ImVec4(1.0f, 0.40f, 0.40f, 1.0f), "Error: %s", gui_error.c_str());
+                        ImGui::TextColored(tc.statusErr, "Error: %s", gui_error.c_str());
                     } else {
-                        ImGui::TextColored(ImVec4(0.35f, 0.90f, 0.50f, 1.0f), "Success: %d rows returned", lastRowCount);
+                        ImGui::TextColored(tc.statusOk, "Success: %d rows returned", lastRowCount);
                         ImGui::SameLine();
                         ImGui::TextDisabled("(%.2f ms)", lastExecTimeMs);
                     }
@@ -288,7 +306,7 @@ int main(int argc, char** argv) {
                             for (const auto& cell : row) {
                                 ImGui::TableNextColumn();
                                 if (cell == "NULL" || cell == "null") {
-                                    ImGui::TextColored(ImVec4(0.55f, 0.58f, 0.70f, 1.0f), "[NULL]");
+                                    ImGui::TextColored(tc.subtext, "[NULL]");
                                 } else {
                                     ImGui::TextUnformatted(cell.c_str());
                                 }
@@ -327,9 +345,9 @@ int main(int argc, char** argv) {
                             ImGui::SetTooltip("Click to load: %s", queryText.c_str());
                         }
                     } else if (log_line.find("Error") != std::string::npos) {
-                        ImGui::TextColored(ImVec4(1.0f, 0.35f, 0.35f, 1.0f), "[Error] %s", log_line.c_str());
+                        ImGui::TextColored(tc.statusErr, "[Error] %s", log_line.c_str());
                     } else {
-                        ImGui::TextColored(ImVec4(0.35f, 0.90f, 0.50f, 1.0f), "[OK] %s", log_line.c_str());
+                        ImGui::TextColored(tc.statusOk, "[OK] %s", log_line.c_str());
                     }
                     ImGui::Separator();
                 }
@@ -347,7 +365,7 @@ int main(int argc, char** argv) {
         ImGui::NextColumn();
         ImGui::BeginChild("SchemaBrowser", ImVec2(0, 0), false, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
 
-        ImGui::TextColored(ImVec4(0.40f, 0.65f, 1.0f, 1.0f), "DATABASE SCHEMA");
+        ImGui::TextColored(tc.accent, "DATABASE SCHEMA");
         auto tableNames = db.getTableNames();
         ImGui::TextDisabled("Tables in database: %d", (int)tableNames.size());
         ImGui::Spacing();
@@ -444,7 +462,7 @@ int main(int argc, char** argv) {
         ImGui::Spacing();
 
         if (!saveStatusMsg.empty()) {
-            ImGui::TextColored(ImVec4(0.35f, 0.90f, 0.50f, 1.0f), "%s", saveStatusMsg.c_str());
+            ImGui::TextColored(tc.statusOk, "%s", saveStatusMsg.c_str());
             ImGui::Spacing();
         }
         if (ImGui::Button("Save Database", ImVec2(-FLT_MIN, 28))) {
@@ -469,7 +487,8 @@ int main(int argc, char** argv) {
 
         // Render frame
         ImGui::Render();
-        glClearColor(0.11f, 0.12f, 0.16f, 1.0f);
+        const ImVec4& bg = ImGui::GetStyle().Colors[ImGuiCol_WindowBg];
+        glClearColor(bg.x, bg.y, bg.z, bg.w);
         glClear(GL_COLOR_BUFFER_BIT);
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
         glfwSwapBuffers(window);
