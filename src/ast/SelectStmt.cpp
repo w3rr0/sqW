@@ -25,72 +25,54 @@ void SelectStmt::execute() {
     try {
         Table& table = db.getTable(tableName);
         const auto& allTableCols = table.getColumns();
+        const size_t totalRows = table.getRowCount();
 
         // mapping columns
         std::vector<size_t> projectionIdx;
         if (columns.size() == 1 && columns[0] == "*") {
+            projectionIdx.reserve(allTableCols.size());
             for (size_t i = 0; i < allTableCols.size(); ++i) {
                 projectionIdx.push_back(i);
             }
         } else {
+            projectionIdx.reserve(columns.size());
             for (const auto& name : columns) {
                 projectionIdx.push_back(getColIdx(table, name));
             }
         }
 
-        std::vector<std::vector<Cell>> filteredRows;
-        // FILTERS
-        for (size_t i = 0; i < table.getRowCount(); ++i) {
-            // skipping deleted rows
-            if (table.isDeleted(i)) continue;
-
-            std::vector<Cell> row = table.getRow(i);
-            if (!where || where->evaluate(table, row)) {
-                filteredRows.push_back(row);
-            }
-        }
-
-        // ORDER BY
-        if (!orderByList.empty()) {
-            struct ResolvedOrder {
-                size_t colIdx;
-                bool isAsc;
-            };
-            std::vector<ResolvedOrder> resolved;
-            for (const auto& item : orderByList) {
-                resolved.push_back({getColIdx(table, item.column), item.isAscending});
-            }
-
-            std::sort(filteredRows.begin(), filteredRows.end(), [&](const std::vector<Cell>& a, const std::vector<Cell>& b) {
-                for (const auto& r : resolved) {
-                    if (a[r.colIdx] == b[r.colIdx]) continue;
-                    if (r.isAsc) return a[r.colIdx] < b[r.colIdx];
-                    return a[r.colIdx] > b[r.colIdx];
+        // FILTERS: store row indices instead of allocating full rows
+        std::vector<size_t> matchedIndices;
+        if (where) {
+            where->prepare(table);
+            matchedIndices.reserve(std::min(totalRows, size_t(1024)));
+            for (size_t i = 0; i < totalRows; ++i) {
+                if (table.isDeleted(i)) continue;
+                if (where->evaluate(table, i)) {
+                    matchedIndices.push_back(i);
                 }
-                return false;
-            });
-        }
-
-        // DISTINCT
-        std::vector<std::vector<Cell>> finalRows;
-        std::set<std::vector<Cell>> uniqueSet;
-
-        for (const auto& fullRow : filteredRows) {
-            std::vector<Cell> projectedRow;
-            for (size_t idx : projectionIdx) {
-                projectedRow.push_back(fullRow[idx]);
             }
-
-            if (isDistinct) {
-                if (uniqueSet.insert(projectedRow).second) {
-                    finalRows.push_back(projectedRow);
+        } else {
+            // Optimization for queries with LIMIT, no WHERE, no ORDER BY, no DISTINCT, no AGGREGATE
+            if (orderByList.empty() && !isDistinct && aggType == Aggregate::NONE && limit >= 0) {
+                size_t needed = static_cast<size_t>(std::max(0, offset) + limit);
+                matchedIndices.reserve(needed);
+                for (size_t i = 0; i < totalRows && matchedIndices.size() < needed; ++i) {
+                    if (!table.isDeleted(i)) {
+                        matchedIndices.push_back(i);
+                    }
                 }
             } else {
-                finalRows.push_back(projectedRow);
+                matchedIndices.reserve(totalRows);
+                for (size_t i = 0; i < totalRows; ++i) {
+                    if (!table.isDeleted(i)) {
+                        matchedIndices.push_back(i);
+                    }
+                }
             }
         }
 
-        // AGGREGATION
+        // AGGREGATION: computed directly without full row vectors or sorting
         if (aggType != Aggregate::NONE) {
             gui_headers.clear();
             gui_results.clear();
@@ -100,18 +82,20 @@ void SelectStmt::execute() {
 
             // COUNT(*)
             if (aggType == Aggregate::COUNT && aggColumn == "*") {
-                std::cout << "COUNT(*): " << filteredRows.size() << std::endl;
-                res_ss << "COUNT(*): " << filteredRows.size();
+                std::cout << "COUNT(*): " << matchedIndices.size() << std::endl;
+                res_ss << "COUNT(*): " << matchedIndices.size();
                 gui_row.push_back(res_ss.str());
-                gui_results.push_back(gui_row);
+                gui_results.push_back(std::move(gui_row));
                 return;
             }
+
             size_t colIdx = getColIdx(table, aggColumn);
+            const Column& targetCol = allTableCols[colIdx];
 
             if (aggType == Aggregate::COUNT) {
                 size_t nonNullCount = 0;
-                for (const auto& r : filteredRows) {
-                    if (!r[colIdx].isNull()) nonNullCount++;
+                for (size_t idx : matchedIndices) {
+                    if (!targetCol.isNull(idx)) nonNullCount++;
                 }
                 std::cout << "COUNT(" << aggColumn << "): " << nonNullCount << std::endl;
                 res_ss << "COUNT(" << aggColumn << "): " << nonNullCount;
@@ -119,9 +103,9 @@ void SelectStmt::execute() {
             else if (aggType == Aggregate::AVG) {
                 double sum = 0;
                 size_t nonNullCount = 0;
-                for (const auto& r : filteredRows) {
-                    const Cell& c = r[colIdx];
-                    if (c.isNull()) continue;
+                for (size_t idx : matchedIndices) {
+                    if (targetCol.isNull(idx)) continue;
+                    Cell c = targetCol.get(idx);
                     if (c.getType() == Cell::INT) {
                         sum += c.as<int>();
                         nonNullCount++;
@@ -142,9 +126,9 @@ void SelectStmt::execute() {
             else if (aggType == Aggregate::SUM) {
                 double sum = 0;
                 bool hasNonNull = false;
-                for (const auto& r : filteredRows) {
-                    const Cell& c = r[colIdx];
-                    if (c.isNull()) continue;
+                for (size_t idx : matchedIndices) {
+                    if (targetCol.isNull(idx)) continue;
+                    Cell c = targetCol.get(idx);
                     if (c.getType() == Cell::INT) {
                         sum += c.as<int>();
                         hasNonNull = true;
@@ -165,18 +149,18 @@ void SelectStmt::execute() {
                 Cell result;
                 bool foundFirst = false;
 
-                for (const auto& r : filteredRows) {
-                    const Cell& current = r[colIdx];
-                    if (current.isNull()) continue;
+                for (size_t idx : matchedIndices) {
+                    if (targetCol.isNull(idx)) continue;
+                    Cell current = targetCol.get(idx);
 
                     if (!foundFirst) {
-                        result = current;
+                        result = std::move(current);
                         foundFirst = true;
                     } else {
                         if (aggType == Aggregate::MIN) {
-                            if (current < result) result = current;
+                            if (current < result) result = std::move(current);
                         } else {
-                            if (current > result) result = current;
+                            if (current > result) result = std::move(current);
                         }
                     }
                 }
@@ -190,40 +174,136 @@ void SelectStmt::execute() {
                     res_ss << label << "(" << aggColumn << "): " << result;
                 }
             }
+
             gui_row.push_back(res_ss.str());
-            gui_results.push_back(gui_row);
+            gui_results.push_back(std::move(gui_row));
             return;
         }
 
-        // OFFSET
-        if (offset > 0) {
-            if (offset >= (int)finalRows.size()) {
-                finalRows.clear();
+        // ORDER BY: operates on row indices
+        if (!orderByList.empty()) {
+            struct ResolvedOrder {
+                size_t colIdx;
+                bool isAsc;
+            };
+            std::vector<ResolvedOrder> resolved;
+            resolved.reserve(orderByList.size());
+            for (const auto& item : orderByList) {
+                resolved.push_back({getColIdx(table, item.column), item.isAscending});
+            }
+
+            auto comparator = [&](size_t a, size_t b) {
+                for (const auto& r : resolved) {
+                    Cell ca = allTableCols[r.colIdx].get(a);
+                    Cell cb = allTableCols[r.colIdx].get(b);
+                    if (ca == cb) continue;
+                    if (r.isAsc) return ca < cb;
+                    return ca > cb;
+                }
+                return false;
+            };
+
+            if (!isDistinct && limit >= 0 && (size_t)(std::max(0, offset) + limit) < matchedIndices.size()) {
+                size_t targetCount = static_cast<size_t>(std::max(0, offset) + limit);
+                std::partial_sort(matchedIndices.begin(), matchedIndices.begin() + targetCount, matchedIndices.end(), comparator);
             } else {
-                finalRows.erase(finalRows.begin(), finalRows.begin() + offset);
+                std::sort(matchedIndices.begin(), matchedIndices.end(), comparator);
             }
         }
 
-        // LIMIT
-        if (limit >= 0) { // if limit is set, becuase default is -1
-            if (limit < (int)finalRows.size()) {
+        // DISTINCT and Pagination
+        std::vector<std::vector<Cell>> finalRows;
+
+        if (isDistinct) {
+            std::set<std::vector<Cell>> uniqueSet;
+            for (size_t rowIdx : matchedIndices) {
+                std::vector<Cell> projectedRow;
+                projectedRow.reserve(projectionIdx.size());
+                for (size_t idx : projectionIdx) {
+                    projectedRow.push_back(allTableCols[idx].get(rowIdx));
+                }
+
+                if (uniqueSet.insert(projectedRow).second) {
+                    finalRows.push_back(std::move(projectedRow));
+                }
+            }
+
+            // OFFSET
+            if (offset > 0) {
+                if (offset >= (int)finalRows.size()) {
+                    finalRows.clear();
+                } else {
+                    finalRows.erase(finalRows.begin(), finalRows.begin() + offset);
+                }
+            }
+
+            // LIMIT
+            if (limit >= 0 && limit < (int)finalRows.size()) {
                 finalRows.resize(limit);
             }
+        } else {
+            // No DISTINCT: apply OFFSET and LIMIT directly on indices before row materialization
+            if (offset > 0) {
+                if (offset >= (int)matchedIndices.size()) {
+                    matchedIndices.clear();
+                } else {
+                    matchedIndices.erase(matchedIndices.begin(), matchedIndices.begin() + offset);
+                }
+            }
+
+            if (limit >= 0 && limit < (int)matchedIndices.size()) {
+                matchedIndices.resize(limit);
+            }
+
+            finalRows.reserve(matchedIndices.size());
+            for (size_t rowIdx : matchedIndices) {
+                std::vector<Cell> projectedRow;
+                projectedRow.reserve(projectionIdx.size());
+                for (size_t idx : projectionIdx) {
+                    projectedRow.push_back(allTableCols[idx].get(rowIdx));
+                }
+                finalRows.push_back(std::move(projectedRow));
+            }
         }
+
         // data for GUI
         gui_headers.clear();
         gui_results.clear();
+        gui_headers.reserve(projectionIdx.size());
         for (size_t idx : projectionIdx) {
             gui_headers.push_back(allTableCols[idx].getName());
         }
+
+        gui_results.reserve(finalRows.size());
         for (const auto& row : finalRows) {
             std::vector<std::string> gui_row;
+            gui_row.reserve(row.size());
             for (const auto& cell : row) {
-                std::stringstream ss;
-                ss << cell;
-                gui_row.push_back(ss.str());
+                switch (cell.getType()) {
+                    case Cell::NULL_TYPE:
+                        gui_row.push_back("NULL");
+                        break;
+                    case Cell::INT:
+                        gui_row.push_back(std::to_string(cell.as<int>()));
+                        break;
+                    case Cell::TEXT:
+                        gui_row.push_back(cell.as<std::string>());
+                        break;
+                    case Cell::BOOL:
+                        gui_row.push_back(cell.as<bool>() ? "TRUE" : "FALSE");
+                        break;
+                    case Cell::DOUBLE: {
+                        std::stringstream ss;
+                        ss << cell.as<double>();
+                        gui_row.push_back(ss.str());
+                        break;
+                    }
+                    default:
+                        gui_row.push_back("");
+                        break;
+                }
             }
-            gui_results.push_back(gui_row);
+            gui_results.push_back(std::move(gui_row));
         }
 
         // DISPLAY
@@ -234,6 +314,5 @@ void SelectStmt::execute() {
         gui_error = e.what();
         std::string errMsg = "SELECT failed: " + gui_error;
         gui_log.push_back(errMsg);
-
     }
 }

@@ -38,19 +38,29 @@ void UpdateStmt::execute() {
         Table& table = db.getTable(tableName);
         int updateCount = 0;
 
-        std::vector<std::pair<std::string, Cell>> preparedUpdates;
+        struct PreparedUpdate {
+            Column& col;
+            Cell newValue;
+        };
+
+        std::vector<PreparedUpdate> preparedUpdates;
+        preparedUpdates.reserve(columnsToUpdate.size());
         for (auto const& [colName, newVal] : columnsToUpdate) {
-            Cell::Type targetType = table.getColumn(colName).getType();
-            preparedUpdates.push_back({colName, createCellUpdate(newVal, targetType)});
+            Column& col = table.getColumn(colName);
+            preparedUpdates.push_back({col, createCellUpdate(newVal, col.getType())});
         }
-        for (size_t i = 0; i < table.getRowCount(); i++) {
+
+        if (where) {
+            where->prepare(table);
+        }
+
+        const size_t totalRows = table.getRowCount();
+        for (size_t i = 0; i < totalRows; i++) {
             if (table.isDeleted(i)) continue;
 
-            std::vector<Cell> row = table.getRow(i);
-
-            if (!where || where->evaluate(table, row)) {
-                for (auto const& [colName, newValue] : preparedUpdates) {
-                    table.updateCell(i, colName, newValue);
+            if (!where || where->evaluate(table, i)) {
+                for (auto& upd : preparedUpdates) {
+                    upd.col.set(i, upd.newValue);
                 }
                 updateCount++;
             }

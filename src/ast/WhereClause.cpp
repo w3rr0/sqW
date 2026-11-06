@@ -4,7 +4,6 @@
 #include <stdexcept>
 #include "storage/Cell.hpp"
 
-
 // helper method for removing '' and ""
 static std::string clearQuotes(std::string s) {
     if (s.size() >= 2 && ((s.front() == '\'' && s.back() == '\'') || (s.front() == '\"' && s.back() == '\"'))) {
@@ -35,32 +34,22 @@ Cell createLiteralCell(const std::string& val, Cell::Type type) {
     return Cell(clean); // TEXT
 }
 
-// ComparisonCondition -> OPERATORS and LIKE
-bool ComparisonCondition::evaluate(const Table& table, const std::vector<Cell>& row) const {
-    size_t idx = getColIdx(table, column);
-    const Cell& valInTable = row[idx];
-    Cell literal = createLiteralCell(value, table.getColumns()[idx].getType());
+// ComparisonCondition
+ComparisonCondition::ComparisonCondition(std::string col, std::string oper, std::string val)
+    : column(std::move(col)), op(std::move(oper)), value(std::move(val)) {
+    if (op == "=") opType = OpType::EQ;
+    else if (op == ">") opType = OpType::GT;
+    else if (op == "<") opType = OpType::LT;
+    else if (op == ">=") opType = OpType::GTE;
+    else if (op == "<=") opType = OpType::LTE;
+    else if (op == "!=") opType = OpType::NEQ;
+    else if (op == "IS") opType = OpType::IS_NULL;
+    else if (op == "IS NOT") opType = OpType::IS_NOT_NULL;
+    else if (op == "LIKE") opType = OpType::LIKE;
+    else if (op == "NOT LIKE") opType = OpType::NOT_LIKE;
+    else opType = OpType::UNKNOWN;
 
-    if (op == "=")  return valInTable == literal;
-    if (op == ">")  return valInTable > literal;
-    if (op == "<")  return valInTable < literal;
-    if (op == ">=") return valInTable >= literal;
-    if (op == "<=") return valInTable <= literal;
-    if (op == "!=") return valInTable != literal;
-
-    if (op == "IS") {
-        return valInTable.getType() == Cell::Type::NULL_TYPE;
-    }
-    if (op == "IS NOT") {
-        return valInTable.getType() != Cell::Type::NULL_TYPE;
-    }
-
-    if (op == "LIKE" || op == "NOT LIKE") {
-        // LIKE requires converting from Cell to string
-        std::string v;
-        if (valInTable.getType() == Cell::TEXT) v = valInTable.as<std::string>();
-        else return false; // works only for texts
-
+    if (opType == OpType::LIKE || opType == OpType::NOT_LIKE) {
         std::string pattern = clearQuotes(value);
         std::string regexPattern = pattern;
 
@@ -78,57 +67,191 @@ bool ComparisonCondition::evaluate(const Table& table, const std::vector<Cell>& 
         }
 
         try {
-            std::regex re(regexPattern, std::regex_constants::icase); // icase = case insensitive
-
-            bool isMatch = std::regex_match(v, re);
-            // if NOT LIKE -> !isMatch
-            return (op == "NOT LIKE") ? !isMatch : isMatch;
+            regexObj = std::regex(regexPattern, std::regex_constants::icase);
+            regexValid = true;
         } catch (...) {
-            return false;
+            regexValid = false;
         }
+    }
+}
+
+void ComparisonCondition::prepare(const Table& table) const {
+    cachedTable = &table;
+    cachedColIdx = getColIdx(table, column);
+    if (opType != OpType::IS_NULL && opType != OpType::IS_NOT_NULL) {
+        Cell::Type type = table.getColumns()[cachedColIdx].getType();
+        cachedLiteral = createLiteralCell(value, type);
+    }
+    prepared = true;
+}
+
+bool ComparisonCondition::evaluateCell(const Cell& valInTable) const {
+    switch (opType) {
+        case OpType::EQ:          return valInTable == cachedLiteral;
+        case OpType::GT:          return valInTable >  cachedLiteral;
+        case OpType::LT:          return valInTable <  cachedLiteral;
+        case OpType::GTE:         return valInTable >= cachedLiteral;
+        case OpType::LTE:         return valInTable <= cachedLiteral;
+        case OpType::NEQ:         return valInTable != cachedLiteral;
+        case OpType::IS_NULL:     return valInTable.getType() == Cell::Type::NULL_TYPE;
+        case OpType::IS_NOT_NULL: return valInTable.getType() != Cell::Type::NULL_TYPE;
+        case OpType::LIKE: {
+            if (valInTable.getType() != Cell::TEXT || !regexValid) return false;
+            return std::regex_match(valInTable.as<std::string>(), regexObj);
+        }
+        case OpType::NOT_LIKE: {
+            if (valInTable.getType() != Cell::TEXT || !regexValid) return false;
+            return !std::regex_match(valInTable.as<std::string>(), regexObj);
+        }
+        default: return false;
+    }
+}
+
+bool ComparisonCondition::evaluate(const Table& table, const std::vector<Cell>& row) const {
+    if (!prepared || cachedTable != &table) {
+        prepare(table);
+    }
+    const Cell& valInTable = row[cachedColIdx];
+    return evaluateCell(valInTable);
+}
+
+bool ComparisonCondition::evaluate(const Table& table, size_t rowIndex) const {
+    if (!prepared || cachedTable != &table) {
+        prepare(table);
+    }
+    if (opType == OpType::IS_NULL) {
+        return table.getColumns()[cachedColIdx].isNull(rowIndex);
+    }
+    if (opType == OpType::IS_NOT_NULL) {
+        return !table.getColumns()[cachedColIdx].isNull(rowIndex);
+    }
+    if (table.getColumns()[cachedColIdx].isNull(rowIndex)) {
+        if (opType == OpType::EQ) return cachedLiteral.isNull();
+        if (opType == OpType::NEQ) return !cachedLiteral.isNull();
+        return false;
+    }
+    Cell valInTable = table.getColumns()[cachedColIdx].get(rowIndex);
+    return evaluateCell(valInTable);
+}
+
+void ComparisonCondition::print() const {
+    std::cout << column << " " << op << " " << value;
+}
+
+// LogicalCondition
+LogicalCondition::LogicalCondition(std::unique_ptr<WhereClause> l, std::string oper, std::unique_ptr<WhereClause> r)
+    : left(std::move(l)), op(std::move(oper)), right(std::move(r)) {
+    logicalOp = (op == "OR") ? LogicalOp::OR : LogicalOp::AND;
+}
+
+void LogicalCondition::prepare(const Table& table) const {
+    if (left) left->prepare(table);
+    if (right) right->prepare(table);
+}
+
+bool LogicalCondition::evaluate(const Table& table, const std::vector<Cell>& row) const {
+    if (logicalOp == LogicalOp::AND) {
+        return left && left->evaluate(table, row) && right && right->evaluate(table, row);
+    }
+    if (logicalOp == LogicalOp::OR) {
+        return (left && left->evaluate(table, row)) || (right && right->evaluate(table, row));
     }
     return false;
 }
 
-void ComparisonCondition::print() const { std::cout << column << " " << op << " " << value; }
-
-// LogicalCondition -> AND / OR
-bool LogicalCondition::evaluate(const Table& table, const std::vector<Cell>& row) const {
-    if (op == "AND") return left->evaluate(table, row) && right->evaluate(table, row);
-    if (op == "OR")  return left->evaluate(table, row) || right->evaluate(table, row);
+bool LogicalCondition::evaluate(const Table& table, size_t rowIndex) const {
+    if (logicalOp == LogicalOp::AND) {
+        return left && left->evaluate(table, rowIndex) && right && right->evaluate(table, rowIndex);
+    }
+    if (logicalOp == LogicalOp::OR) {
+        return (left && left->evaluate(table, rowIndex)) || (right && right->evaluate(table, rowIndex));
+    }
     return false;
 }
 
 void LogicalCondition::print() const {
-    std::cout << "("; left->print(); std::cout << " " << op << " "; right->print(); std::cout << ")";
+    std::cout << "(";
+    if (left) left->print();
+    std::cout << " " << op << " ";
+    if (right) right->print();
+    std::cout << ")";
 }
 
-// BetweenCondition -> BETWEEN
+// BetweenCondition
+void BetweenCondition::prepare(const Table& table) const {
+    cachedTable = &table;
+    cachedColIdx = getColIdx(table, column);
+    Cell::Type type = table.getColumns()[cachedColIdx].getType();
+    cachedMin = createLiteralCell(valMin, type);
+    cachedMax = createLiteralCell(valMax, type);
+    prepared = true;
+}
+
 bool BetweenCondition::evaluate(const Table& table, const std::vector<Cell>& row) const {
-    size_t idx = getColIdx(table, column);
-    const Cell& v = row[idx];
-    Cell minL = createLiteralCell(valMin, table.getColumns()[idx].getType());
-    Cell maxL = createLiteralCell(valMax, table.getColumns()[idx].getType());
-
-    return v >= minL && v <= maxL;
+    if (!prepared || cachedTable != &table) {
+        prepare(table);
+    }
+    const Cell& v = row[cachedColIdx];
+    return v >= cachedMin && v <= cachedMax;
 }
 
-void BetweenCondition::print() const { std::cout << column << " BETWEEN " << valMin << " AND " << valMax; }
+bool BetweenCondition::evaluate(const Table& table, size_t rowIndex) const {
+    if (!prepared || cachedTable != &table) {
+        prepare(table);
+    }
+    if (table.getColumns()[cachedColIdx].isNull(rowIndex)) {
+        return false;
+    }
+    Cell v = table.getColumns()[cachedColIdx].get(rowIndex);
+    return v >= cachedMin && v <= cachedMax;
+}
 
-// InCondition -> IN
-bool InCondition::evaluate(const Table& table, const std::vector<Cell>& row) const {
-    size_t idx = getColIdx(table, column);
-    const Cell& v = row[idx];
-    Cell::Type type = table.getColumns()[idx].getType();
+void BetweenCondition::print() const {
+    std::cout << column << " BETWEEN " << valMin << " AND " << valMax;
+}
 
+// InCondition
+void InCondition::prepare(const Table& table) const {
+    cachedTable = &table;
+    cachedColIdx = getColIdx(table, column);
+    Cell::Type type = table.getColumns()[cachedColIdx].getType();
+    cachedValues.clear();
+    cachedValues.reserve(values.size());
     for (const auto& val : values) {
-        if (v == createLiteralCell(val, type)) return true;
+        cachedValues.push_back(createLiteralCell(val, type));
+    }
+    prepared = true;
+}
+
+bool InCondition::evaluate(const Table& table, const std::vector<Cell>& row) const {
+    if (!prepared || cachedTable != &table) {
+        prepare(table);
+    }
+    const Cell& v = row[cachedColIdx];
+    for (const auto& lit : cachedValues) {
+        if (v == lit) return true;
+    }
+    return false;
+}
+
+bool InCondition::evaluate(const Table& table, size_t rowIndex) const {
+    if (!prepared || cachedTable != &table) {
+        prepare(table);
+    }
+    if (table.getColumns()[cachedColIdx].isNull(rowIndex)) {
+        return false;
+    }
+    Cell v = table.getColumns()[cachedColIdx].get(rowIndex);
+    for (const auto& lit : cachedValues) {
+        if (v == lit) return true;
     }
     return false;
 }
 
 void InCondition::print() const {
     std::cout << column << " IN (";
-    for(size_t i=0; i<values.size(); ++i) std::cout << values[i] << (i==values.size()-1 ? "" : ", ");
+    for (size_t i = 0; i < values.size(); ++i) {
+        std::cout << values[i] << (i == values.size() - 1 ? "" : ", ");
+    }
     std::cout << ")";
 }
