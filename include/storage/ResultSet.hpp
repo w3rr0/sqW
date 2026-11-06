@@ -1,6 +1,9 @@
 #ifndef RESULTSET_HPP
 #define RESULTSET_HPP
 
+#include <string>
+#include <vector>
+
 #include "storage/Cell.hpp"
 
 

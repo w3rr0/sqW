@@ -1,3 +1,5 @@
+#include <utility>
+
 #include "storage/ResultSet.hpp"
 
 ResultSet::ResultSet(std::vector<std::string> headers)
