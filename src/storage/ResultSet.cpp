@@ -1,4 +1,5 @@
 #include <utility>
+#include <stdexcept>
 
 #include "storage/ResultSet.hpp"
 
@@ -20,10 +21,10 @@ void ResultSet::addRow(std::vector<Cell> row) {
     rows.push_back(std::move(row));
 }
 
-const std::vector<std::string>& ResultSet::getHeaders() {
+const std::vector<std::string>& ResultSet::getHeaders() const {
     return headers;
 }
 
-const std::vector<std::vector<Cell>>& ResultSet::getRows() {
+const std::vector<std::vector<Cell>>& ResultSet::getRows() const {
     return rows;
 }

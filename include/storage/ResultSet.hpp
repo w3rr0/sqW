@@ -14,8 +14,8 @@ public:
 
     void addRow(std::vector<Cell> row);
 
-    const std::vector<std::string>& getHeaders();
-    const std::vector<std::vector<Cell>>& getRows();
+    [[nodiscard]] const std::vector<std::string>& getHeaders() const;
+    [[nodiscard]] const std::vector<std::vector<Cell>>& getRows() const;
 
 private:
     std::vector<std::string> headers;
