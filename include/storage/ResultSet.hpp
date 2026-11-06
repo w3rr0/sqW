@@ -10,7 +10,7 @@
 class ResultSet {
 public:
     explicit ResultSet(std::vector<std::string> headers);
-    explicit ResultSet(std::vector<std::string> headers, const std::vector<std::vector<Cell>>& initialRows);
+    explicit ResultSet(std::vector<std::string> headers, std::vector<std::vector<Cell>> initialRows);
 
     void addRow(std::vector<Cell> row);
 

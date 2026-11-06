@@ -6,10 +6,10 @@
 ResultSet::ResultSet(std::vector<std::string> headers)
     : headers(std::move(headers)) {}
 
-ResultSet::ResultSet(std::vector<std::string> headers, const std::vector<std::vector<Cell> >& initialRows)
+ResultSet::ResultSet(std::vector<std::string> headers, std::vector<std::vector<Cell>> initialRows)
     : headers(std::move(headers)) {
     rows.reserve(initialRows.size());
-    for (auto row : initialRows) {
+    for (auto& row : initialRows) {
         addRow(std::move(row));
     }
 }
