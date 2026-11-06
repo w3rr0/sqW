@@ -3,8 +3,13 @@
 ResultSet::ResultSet(std::vector<std::string> headers)
     : headers(std::move(headers)) {}
 
-ResultSet::ResultSet(std::vector<std::string> headers, std::vector<std::vector<Cell> > rows)
-    : headers(std::move(headers)), rows(std::move(rows)) {}
+ResultSet::ResultSet(std::vector<std::string> headers, const std::vector<std::vector<Cell> >& initialRows)
+    : headers(std::move(headers)) {
+    rows.reserve(initialRows.size());
+    for (auto row : initialRows) {
+        rows.push_back(std::move(row));
+    }
+}
 
 void ResultSet::addRow(std::vector<Cell> row) {
     if (row.size() != headers.size()) {
