@@ -64,6 +64,11 @@ void executeSQL(const char* input);
 class Utils {
 public:
     /**
+     * @brief Configures modern dark theme colors and rounding for Dear ImGui.
+     */
+    static void applyModernTheme();
+
+    /**
      * @brief Renders SQL text with syntax highlighting using regular expressions.
      * @param text The SQL query or snippet to render.
      * @param isGui If true, uses ImGui::TextColored; if false, uses terminal ANSI codes.

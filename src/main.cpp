@@ -8,6 +8,8 @@
 #include <filesystem>
 #include <sstream>
 #include <regex>
+#include <chrono>
+#include <iomanip>
 #include "storage/Database.hpp"
 #include "ast/Statement.hpp"
 #include "gui/Utils.hpp"
@@ -89,136 +91,391 @@ int main(int argc, char** argv) {
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
     glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE); // required for macOS
 
-    // setting up the window
-    GLFWwindow* window = glfwCreateWindow(1280, 720, "sqW", NULL, NULL);
+    // setting up the window with modern title
+    GLFWwindow* window = glfwCreateWindow(1360, 780, "sqW - SQL Database Studio", NULL, NULL);
+    if (!window) {
+        glfwTerminate();
+        return 1;
+    }
 
-    // all future new looks will be added to thsi window
     glfwMakeContextCurrent(window);
     glfwSwapInterval(1);
 
-    // loading the UI library and  connect it to the window (GLFW) and the drawing engine (OpenGL3).
+    // Initialize ImGui
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
-    ImGui::GetIO().FontGlobalScale = 1.4f;
+
+    // Apply modern developer theme
+    Utils::applyModernTheme();
+
+    ImGuiIO& io = ImGui::GetIO();
+    // Load crisp TrueType monospace font across macOS, Windows, and Linux
+    const char* fontCandidates[] = {
+        // macOS
+        "/System/Library/Fonts/SFNSMono.ttf",
+        "/System/Library/Fonts/Menlo.ttc",
+        "/System/Library/Fonts/Monaco.ttf",
+        // Windows
+        "C:\\Windows\\Fonts\\consola.ttf",
+        "C:\\Windows\\Fonts\\segoeui.ttf",
+        // Linux
+        "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
+        "/usr/share/fonts/TTF/DejaVuSansMono.ttf",
+        "/usr/share/fonts/truetype/ubuntu/UbuntuMono-R.ttf"
+    };
+    bool fontLoaded = false;
+    for (const char* path : fontCandidates) {
+        if (std::filesystem::exists(path)) {
+            ImFont* f = io.Fonts->AddFontFromFileTTF(path, 16.0f);
+            if (f) {
+                fontLoaded = true;
+                break;
+            }
+        }
+    }
+    if (!fontLoaded) {
+        io.FontGlobalScale = 1.25f;
+    }
+
     ImGui_ImplGlfw_InitForOpenGL(window, true);
     ImGui_ImplOpenGL3_Init("#version 150");
 
     char sql_input[10024] = "";
+    char table_filter[128] = "";
+    double lastExecTimeMs = 0.0;
+    int lastRowCount = 0;
+    bool hasExecuted = false;
+    std::string saveStatusMsg = "";
 
-    // MAIN CONSOLE layout
+    // MAIN CONSOLE loop
     while (!glfwWindowShouldClose(window)) {
-        glfwPollEvents(); // checks for mouse clicks
-        ImGui_ImplOpenGL3_NewFrame(); ImGui_ImplGlfw_NewFrame(); ImGui::NewFrame();
+        glfwPollEvents();
+        ImGui_ImplOpenGL3_NewFrame();
+        ImGui_ImplGlfw_NewFrame();
+        ImGui::NewFrame();
 
-        // starting new UI frame
+        // Main fullscreen window
         ImGui::SetNextWindowPos(ImVec2(0, 0));
-        ImGui::SetNextWindowSize(ImGui::GetIO().DisplaySize);
-        ImGui::Begin("MainLayout", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize);
+        ImGui::SetNextWindowSize(io.DisplaySize);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(12.0f, 12.0f));
+        ImGui::Begin("MainLayout", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize |
+                                            ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
 
-        // dividing UI into two columns: Workspace and Database schema
+        // TOP HEADER BAR
+        ImGui::TextColored(ImVec4(0.40f, 0.65f, 1.0f, 1.0f), "sqW");
+        ImGui::SameLine();
+        ImGui::TextColored(ImVec4(0.52f, 0.55f, 0.65f, 1.0f), "Database: %s", db.getName().c_str());
+        ImGui::SameLine();
+        ImGui::TextColored(ImVec4(0.35f, 0.88f, 0.50f, 1.0f), "Connected");
+
+        // Top-right template shortcuts
+        ImGui::SameLine(ImGui::GetWindowWidth() - 480);
+        if (ImGui::Button("+ SELECT")) {
+            auto names = db.getTableNames();
+            std::string sampleTable = names.empty() ? "table_name" : names[0];
+            std::string q = "SELECT * FROM " + sampleTable + " LIMIT 10;";
+            strncpy(sql_input, q.c_str(), sizeof(sql_input) - 1);
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("+ INSERT")) {
+            auto names = db.getTableNames();
+            std::string sampleTable = names.empty() ? "table_name" : names[0];
+            std::string q = "INSERT INTO " + sampleTable + " VALUES (...);";
+            strncpy(sql_input, q.c_str(), sizeof(sql_input) - 1);
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("+ CREATE")) {
+            std::string q = "CREATE TABLE new_table (id INT, name STRING, score DOUBLE);";
+            strncpy(sql_input, q.c_str(), sizeof(sql_input) - 1);
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Clear Editor")) {
+            memset(sql_input, 0, sizeof(sql_input));
+        }
+
+        ImGui::Separator();
+        ImGui::Spacing();
+
+        // SPLIT INTO TWO MAIN PANELS
         ImGui::Columns(2, "MainColumns", true);
-        ImGui::SetColumnWidth(0, ImGui::GetIO().DisplaySize.x * 0.75f);
+        ImGui::SetColumnWidth(0, io.DisplaySize.x * 0.73f);
 
-        ImGui::BeginChild("WorkspaceChild");
+        // LEFT PANEL: WORKSPACE (QUERY EDITOR & RESULTS & LOGS)
+        ImGui::BeginChild("WorkspaceChild", ImVec2(0, 0), false, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
 
-        ImGui::Text("sqW Terminal (Press CTRL+ENTER to execute) >");
+        if (ImGui::BeginTabBar("MainTabs")) {
+            // TAB 1: QUERY & RESULTS
+            if (ImGui::BeginTabItem("Query & Results")) {
+                ImGui::Spacing();
+                ImGui::TextColored(ImVec4(0.75f, 0.78f, 0.88f, 1.0f), "SQL Query Input (Cmd+Enter to execute):");
 
-        ImGuiIO& io = ImGui::GetIO();
+                // Execute shortcut checking
+                bool ctrl_pressed = io.KeyCtrl || io.KeySuper;
+                bool enter_pressed = ImGui::IsKeyPressed(ImGuiKey_Enter) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter);
+                bool shortcut_pressed = ctrl_pressed && enter_pressed;
 
-        // CTRL + ENTER for fast execution of the query
-        bool ctrl_pressed = io.KeyCtrl || io.KeySuper;
-        bool enter_pressed = ImGui::IsKeyPressed(ImGuiKey_Enter) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter);
-        bool shortcut_pressed = ctrl_pressed && enter_pressed;
+                float input_height = std::min(150.0f, io.DisplaySize.y * 0.22f);
+                ImGui::InputTextMultiline("##query", sql_input, IM_ARRAYSIZE(sql_input),
+                                          ImVec2(-FLT_MIN, input_height),
+                                          ImGuiInputTextFlags_AllowTabInput);
+                bool is_input_focused = ImGui::IsItemFocused();
 
-        ImGui::SetWindowFontScale(1.2f);
-        float input_height = ImGui::GetIO().DisplaySize.y * 0.30f;
+                // Run Query Button (Accent Color)
+                ImGui::Spacing();
+                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.25f, 0.44f, 0.88f, 1.00f));
+                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.32f, 0.52f, 0.98f, 1.00f));
+                ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.20f, 0.36f, 0.75f, 1.00f));
 
-        // input id, height and width, max input size, tab allowed in writing queries
-        ImGui::InputTextMultiline("##query", sql_input, IM_ARRAYSIZE(sql_input), ImVec2(-FLT_MIN, input_height), ImGuiInputTextFlags_AllowTabInput);
+                bool executeTriggered = ImGui::Button("Execute Query (Cmd+Enter)", ImVec2(-FLT_MIN, 32)) || (is_input_focused && shortcut_pressed);
+                ImGui::PopStyleColor(3);
 
-        // shortcut will be executed only if our cursor is in input box (so we are currently writing something)
-        bool is_input_focused = ImGui::IsItemFocused();
-
-        // if triggered
-        if (ImGui::Button("Execute Query", ImVec2(-FLT_MIN, 45)) || (is_input_focused && shortcut_pressed)) {
-            if (strlen(sql_input) > 0) {
-                executeSQL(sql_input);
-                // memset(sql_input, 0, sizeof(sql_input)); // after exxecution we clear our terminal
-                ImGui::SetKeyboardFocusHere(-1); // going back to the input box
-            }
-        }
-
-        // HISTORY LOG layout
-        ImGui::Separator();
-        ImGui::Text("History Log:");
-        ImGui::BeginChild("LogRegion", ImVec2(0, ImGui::GetIO().DisplaySize.y * 0.25f), true);
-        for (const auto& log_line : gui_log) {
-            if (log_line.find("Executing:") != std::string::npos) {
-                ImGui::TextColored(GUI_PINK, "Executing: ");
-                ImGui::SameLine();
-                Utils::renderColoredSQL(log_line.substr(11), true);
-            } else if (log_line.find("Error") != std::string::npos) {
-                ImGui::TextColored(GUI_RED, "%s", log_line.c_str());
-            } else {
-                ImGui::TextUnformatted(log_line.c_str());
-            }
-        }
-        ImGui::EndChild();
-
-        // TABLE RESULTS
-        ImGui::Separator();
-        ImGui::Text("Table Results:");
-        if (!gui_headers.empty() && ImGui::BeginTable("ResultsTable", (int)gui_headers.size(), ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_Resizable)) {
-            for (const auto& h : gui_headers) ImGui::TableSetupColumn(h.c_str());
-            ImGui::TableHeadersRow();
-            for (const auto& row : gui_results) {
-                ImGui::TableNextRow();
-                for (const auto& cell : row) {
-                    ImGui::TableNextColumn();
-                    ImGui::Text("%s", cell.c_str());
+                if (executeTriggered && strlen(sql_input) > 0) {
+                    auto tStart = std::chrono::high_resolution_clock::now();
+                    executeSQL(sql_input);
+                    auto tEnd = std::chrono::high_resolution_clock::now();
+                    lastExecTimeMs = std::chrono::duration<double, std::milli>(tEnd - tStart).count();
+                    lastRowCount = (int)gui_results.size();
+                    hasExecuted = true;
+                    saveStatusMsg = "";
+                    ImGui::SetKeyboardFocusHere(-1);
                 }
-            }
-            ImGui::EndTable();
-        }
-        ImGui::EndChild();
 
-        // DATABASE SCHEMA layout
+                // STATUS BAR
+                ImGui::Spacing();
+                ImGui::Separator();
+                if (hasExecuted) {
+                    if (!gui_error.empty()) {
+                        ImGui::TextColored(ImVec4(1.0f, 0.40f, 0.40f, 1.0f), "Error: %s", gui_error.c_str());
+                    } else {
+                        ImGui::TextColored(ImVec4(0.35f, 0.90f, 0.50f, 1.0f), "Success: %d rows returned", lastRowCount);
+                        ImGui::SameLine();
+                        ImGui::TextDisabled("(%.2f ms)", lastExecTimeMs);
+                    }
+                } else {
+                    ImGui::TextDisabled("Ready for SQL queries.");
+                }
+
+                // CSV Export button on the right
+                if (!gui_results.empty() && !gui_headers.empty()) {
+                    ImGui::SameLine(ImGui::GetWindowWidth() - 170);
+                    if (ImGui::Button("Copy as CSV")) {
+                        std::string csv;
+                        for (size_t i = 0; i < gui_headers.size(); ++i) {
+                            csv += gui_headers[i] + (i + 1 < gui_headers.size() ? "," : "\n");
+                        }
+                        for (const auto& row : gui_results) {
+                            for (size_t i = 0; i < row.size(); ++i) {
+                                csv += row[i] + (i + 1 < row.size() ? "," : "\n");
+                            }
+                        }
+                        ImGui::SetClipboardText(csv.c_str());
+                    }
+                }
+
+                // TABLE RESULTS VIEW
+                ImGui::Spacing();
+                if (!gui_headers.empty()) {
+                    if (ImGui::BeginTable("ResultsTable", (int)gui_headers.size(),
+                                          ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_Resizable | ImGuiTableFlags_ScrollY,
+                                          ImVec2(0, -8.0f))) {
+                        for (const auto& h : gui_headers) {
+                            ImGui::TableSetupColumn(h.c_str(), ImGuiTableColumnFlags_WidthStretch);
+                        }
+                        ImGui::TableHeadersRow();
+
+                        for (const auto& row : gui_results) {
+                            ImGui::TableNextRow();
+                            for (const auto& cell : row) {
+                                ImGui::TableNextColumn();
+                                if (cell == "NULL" || cell == "null") {
+                                    ImGui::TextColored(ImVec4(0.55f, 0.58f, 0.70f, 1.0f), "[NULL]");
+                                } else {
+                                    ImGui::TextUnformatted(cell.c_str());
+                                }
+                            }
+                        }
+                        ImGui::EndTable();
+                    }
+                } else {
+                    ImGui::TextDisabled("No table results to display yet.");
+                }
+
+                ImGui::EndTabItem();
+            }
+
+            // TAB 2: EXECUTION HISTORY LOG
+            if (ImGui::BeginTabItem("Execution History")) {
+                ImGui::Spacing();
+                if (ImGui::Button("Clear History")) {
+                    gui_log.clear();
+                }
+                ImGui::SameLine();
+                ImGui::TextDisabled("(Click any previous query to load it into the editor)");
+                ImGui::Separator();
+
+                ImGui::BeginChild("LogRegion", ImVec2(0, -FLT_MIN), true);
+                for (int i = (int)gui_log.size() - 1; i >= 0; --i) {
+                    const auto& log_line = gui_log[i];
+                    if (log_line.find("Executing:") != std::string::npos) {
+                        std::string queryText = log_line.substr(11);
+                        std::string label = "> " + queryText + "##" + std::to_string(i);
+
+                        if (ImGui::Selectable(label.c_str(), false)) {
+                            strncpy(sql_input, queryText.c_str(), sizeof(sql_input) - 1);
+                        }
+                        if (ImGui::IsItemHovered()) {
+                            ImGui::SetTooltip("Click to load: %s", queryText.c_str());
+                        }
+                    } else if (log_line.find("Error") != std::string::npos) {
+                        ImGui::TextColored(ImVec4(1.0f, 0.35f, 0.35f, 1.0f), "[Error] %s", log_line.c_str());
+                    } else {
+                        ImGui::TextColored(ImVec4(0.35f, 0.90f, 0.50f, 1.0f), "[OK] %s", log_line.c_str());
+                    }
+                    ImGui::Separator();
+                }
+                ImGui::EndChild();
+
+                ImGui::EndTabItem();
+            }
+
+            ImGui::EndTabBar();
+        }
+
+        ImGui::EndChild(); // WorkspaceChild
+
+        // RIGHT PANEL: DATABASE SCHEMA BROWSER
         ImGui::NextColumn();
-        ImGui::BeginChild("SchemaBrowser");
-        ImGui::TextColored(ImVec4(0.2f, 0.3f, 0.55f, 1.0f), "Database schema");
+        ImGui::BeginChild("SchemaBrowser", ImVec2(0, 0), false, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+
+        ImGui::TextColored(ImVec4(0.40f, 0.65f, 1.0f, 1.0f), "DATABASE SCHEMA");
+        auto tableNames = db.getTableNames();
+        ImGui::TextDisabled("Tables in database: %d", (int)tableNames.size());
+        ImGui::Spacing();
+
+        ImGui::InputTextWithHint("##filter", "Search tables...", table_filter, sizeof(table_filter));
         ImGui::Separator();
 
-        auto tableNames = db.getTableNames();
+        // Calculate bottom buttons area height dynamically with comfortable padding
+        float bottomAreaHeight = 110.0f;
+        if (!saveStatusMsg.empty()) bottomAreaHeight += 24.0f;
+
+        ImGui::BeginChild("TablesList", ImVec2(0, -bottomAreaHeight), false);
         for (const auto& tName : tableNames) {
-            if (ImGui::CollapsingHeader(tName.c_str())) {
+            // Apply search filter if set
+            if (strlen(table_filter) > 0) {
+                std::string lowerTName = tName;
+                std::string lowerFilter = table_filter;
+                for (auto& c : lowerTName) c = (char)std::tolower(c);
+                for (auto& c : lowerFilter) c = (char)std::tolower(c);
+                if (lowerTName.find(lowerFilter) == std::string::npos) continue;
+            }
+
+            size_t rowCount = 0;
+            size_t colCount = 0;
+            try {
+                const Table& t = db.getTable(tName);
+                rowCount = t.getRowCount();
+                colCount = t.getColumns().size();
+            } catch (...) {}
+
+            std::string headerLabel = tName + " (" + std::to_string(rowCount) + " rows)";
+
+            if (ImGui::CollapsingHeader(headerLabel.c_str())) {
                 try {
                     Table& t = db.getTable(tName);
-                    for (const auto& col : t.getColumns()) {
-                        ImGui::BulletText("%s (%s)", col.getName().c_str(), col.getTypeString().c_str());
+
+                    // Quick table actions
+                    std::string quickSelectId = "View Top 50##" + tName;
+                    if (ImGui::Button(quickSelectId.c_str(), ImVec2(-FLT_MIN, 26))) {
+                        std::string q = "SELECT * FROM " + tName + " LIMIT 50;";
+                        strncpy(sql_input, q.c_str(), sizeof(sql_input) - 1);
+                        executeSQL(sql_input);
+                        hasExecuted = true;
+                        lastRowCount = (int)gui_results.size();
                     }
+
+                    ImGui::Spacing();
+                    for (const auto& col : t.getColumns()) {
+                        ImGui::Bullet();
+                        ImGui::Text("%s", col.getName().c_str());
+                        ImGui::SameLine();
+
+                        // Colored type badge
+                        std::string typeStr = col.getTypeString();
+                        ImVec4 typeColor = ImVec4(0.5f, 0.7f, 1.0f, 1.0f); // default blue INT
+                        if (typeStr == "DOUBLE" || typeStr == "FLOAT") typeColor = ImVec4(0.3f, 0.9f, 0.8f, 1.0f);
+                        else if (typeStr == "TEXT" || typeStr == "STRING") typeColor = ImVec4(0.85f, 0.5f, 0.95f, 1.0f);
+                        else if (typeStr == "BOOL") typeColor = ImVec4(1.0f, 0.65f, 0.35f, 1.0f);
+
+                        ImGui::TextColored(typeColor, "[%s]", typeStr.c_str());
+                    }
+                    ImGui::Spacing();
                 } catch (...) {}
+            }
+
+            // Context menu on right click of table header
+            if (ImGui::BeginPopupContextItem(tName.c_str())) {
+                if (ImGui::MenuItem("SELECT * (Limit 50)")) {
+                    std::string q = "SELECT * FROM " + tName + " LIMIT 50;";
+                    strncpy(sql_input, q.c_str(), sizeof(sql_input) - 1);
+                    executeSQL(sql_input);
+                    hasExecuted = true;
+                    lastRowCount = (int)gui_results.size();
+                }
+                if (ImGui::MenuItem("SELECT COUNT(*)")) {
+                    std::string q = "SELECT COUNT(*) FROM " + tName + ";";
+                    strncpy(sql_input, q.c_str(), sizeof(sql_input) - 1);
+                    executeSQL(sql_input);
+                    hasExecuted = true;
+                    lastRowCount = (int)gui_results.size();
+                }
+                if (ImGui::MenuItem("DROP TABLE")) {
+                    std::string q = "DROP TABLE " + tName + ";";
+                    strncpy(sql_input, q.c_str(), sizeof(sql_input) - 1);
+                }
+                ImGui::EndPopup();
+            }
+        }
+        ImGui::EndChild(); // TablesList
+
+        // BOTTOM ACTION BUTTONS
+        ImGui::Spacing();
+        ImGui::Separator();
+        ImGui::Spacing();
+
+        if (!saveStatusMsg.empty()) {
+            ImGui::TextColored(ImVec4(0.35f, 0.90f, 0.50f, 1.0f), "%s", saveStatusMsg.c_str());
+            ImGui::Spacing();
+        }
+        if (ImGui::Button("Save Database", ImVec2(-FLT_MIN, 28))) {
+            try {
+                db.saveToFile(DB_FILENAME);
+                saveStatusMsg = "Saved successfully!";
+            } catch (const std::exception& e) {
+                saveStatusMsg = std::string("Save failed: ") + e.what();
             }
         }
 
-        // EXIT BUTTON
-        ImGui::SetCursorPosY(ImGui::GetWindowHeight() - 60);
-        ImGui::Separator();
-        if (ImGui::Button("Exit Program", ImVec2(-FLT_MIN, 40))) {
+        ImGui::Spacing();
+        if (ImGui::Button("Exit Studio", ImVec2(-FLT_MIN, 28))) {
             glfwSetWindowShouldClose(window, true);
         }
+        ImGui::Dummy(ImVec2(0, 8.0f));
 
-        ImGui::EndChild();
-        ImGui::End();
+        ImGui::EndChild(); // SchemaBrowser
 
-        // prepares the UI data for drawing
+        ImGui::End(); // MainLayout
+        ImGui::PopStyleVar();
+
+        // Render frame
         ImGui::Render();
-        glClearColor(0.1f, 0.1f, 0.1f, 1.0f); glClear(GL_COLOR_BUFFER_BIT);
+        glClearColor(0.11f, 0.12f, 0.16f, 1.0f);
+        glClear(GL_COLOR_BUFFER_BIT);
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
-        // show the finshed frame
         glfwSwapBuffers(window);
     }
 
-    // cleanup the whole window before exiting
+    // Cleanup before exiting
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplGlfw_Shutdown();
     ImGui::DestroyContext();
