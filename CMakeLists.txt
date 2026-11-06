@@ -55,8 +55,6 @@ set(IMGUI_SOURCES
         ${imgui_SOURCE_DIR}/backends/imgui_impl_glfw.cpp
         ${imgui_SOURCE_DIR}/backends/imgui_impl_opengl3.cpp
         include/gui/Utils.hpp
-        src/storage/ResultSet.cpp
-        include/storage/ResultSet.hpp
 )
 
 # G Test
