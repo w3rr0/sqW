@@ -170,46 +170,68 @@ int main(int argc, char** argv) {
                                             ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
 
         const Utils::ThemeColors& tc = Utils::getCurrentThemeColors();
+        const ImGuiStyle& style = ImGui::GetStyle();
 
         // TOP HEADER BAR
+        ImGui::AlignTextToFramePadding();
         ImGui::TextColored(tc.brand, "sqW");
-        ImGui::SameLine();
-        ImGui::TextColored(tc.subtext, "Database: %s", db.getName().c_str());
-        ImGui::SameLine();
+        ImGui::SameLine(0.0f, 12.0f);
+        ImGui::TextColored(tc.subtext, "Database:");
+        ImGui::SameLine(0.0f, 6.0f);
+        ImGui::Text("%s", db.getName().c_str());
+        ImGui::SameLine(0.0f, 14.0f);
         ImGui::TextColored(tc.statusOk, "Connected");
-        ImGui::SameLine();
+        ImGui::SameLine(0.0f, 14.0f);
         ImGui::TextColored(tc.subtext, "| Theme:");
-        ImGui::SameLine();
-        ImGui::SetNextItemWidth(150.0f);
+        ImGui::SameLine(0.0f, 8.0f);
+
+        float comboWidth = ImGui::CalcTextSize("Midnight Purple").x + ImGui::GetFrameHeight() + style.FramePadding.x * 2.0f + 10.0f;
+        ImGui::SetNextItemWidth(comboWidth);
         if (ImGui::Combo("##ThemeSelector", &currentThemeIdx, themeNames, IM_ARRAYSIZE(themeNames))) {
             Utils::applyTheme(static_cast<Utils::Theme>(currentThemeIdx));
         }
 
-        // Top-right template shortcuts
-        ImGui::SameLine(ImGui::GetWindowWidth() - 410);
-        if (ImGui::Button("+ SELECT")) {
+        // Top-right template shortcuts (dynamically measured to always stay inside the window)
+        const float btnPad = style.FramePadding.x * 2.0f;
+        const float btnGap = 8.0f;
+        const float wSelect = ImGui::CalcTextSize("+ SELECT", nullptr, true).x + btnPad;
+        const float wInsert = ImGui::CalcTextSize("+ INSERT", nullptr, true).x + btnPad;
+        const float wCreate = ImGui::CalcTextSize("+ CREATE", nullptr, true).x + btnPad;
+        const float wClear  = ImGui::CalcTextSize("Clear Editor", nullptr, true).x + btnPad;
+        const float totalBtnsWidth = wSelect + wInsert + wCreate + wClear + (btnGap * 3.0f);
+
+        float rightContentEdge = ImGui::GetWindowWidth() - style.WindowPadding.x - 6.0f;
+        float rightStartX = rightContentEdge - totalBtnsWidth;
+        if (rightStartX > ImGui::GetCursorPosX() + 12.0f) {
+            ImGui::SameLine(rightStartX);
+        } else {
+            ImGui::SameLine(0.0f, 12.0f);
+        }
+
+        if (ImGui::Button("+ SELECT", ImVec2(wSelect, 0))) {
             auto names = db.getTableNames();
             std::string sampleTable = names.empty() ? "table_name" : names[0];
             std::string q = "SELECT * FROM " + sampleTable + " LIMIT 10;";
             strncpy(sql_input, q.c_str(), sizeof(sql_input) - 1);
         }
-        ImGui::SameLine();
-        if (ImGui::Button("+ INSERT")) {
+        ImGui::SameLine(0.0f, btnGap);
+        if (ImGui::Button("+ INSERT", ImVec2(wInsert, 0))) {
             auto names = db.getTableNames();
             std::string sampleTable = names.empty() ? "table_name" : names[0];
             std::string q = "INSERT INTO " + sampleTable + " VALUES (...);";
             strncpy(sql_input, q.c_str(), sizeof(sql_input) - 1);
         }
-        ImGui::SameLine();
-        if (ImGui::Button("+ CREATE")) {
+        ImGui::SameLine(0.0f, btnGap);
+        if (ImGui::Button("+ CREATE", ImVec2(wCreate, 0))) {
             std::string q = "CREATE TABLE new_table (id INT, name STRING, score DOUBLE);";
             strncpy(sql_input, q.c_str(), sizeof(sql_input) - 1);
         }
-        ImGui::SameLine();
-        if (ImGui::Button("Clear Editor")) {
+        ImGui::SameLine(0.0f, btnGap);
+        if (ImGui::Button("Clear Editor", ImVec2(wClear, 0))) {
             memset(sql_input, 0, sizeof(sql_input));
         }
 
+        ImGui::Spacing();
         ImGui::Separator();
         ImGui::Spacing();
 
@@ -261,6 +283,7 @@ int main(int argc, char** argv) {
                 // STATUS BAR
                 ImGui::Spacing();
                 ImGui::Separator();
+                ImGui::AlignTextToFramePadding();
                 if (hasExecuted) {
                     if (!gui_error.empty()) {
                         ImGui::TextColored(tc.statusErr, "Error: %s", gui_error.c_str());
@@ -275,7 +298,13 @@ int main(int argc, char** argv) {
 
                 // CSV Export button on the right
                 if (!gui_results.empty() && !gui_headers.empty()) {
-                    ImGui::SameLine(ImGui::GetWindowWidth() - 170);
+                    float csvBtnW = ImGui::CalcTextSize("Copy as CSV").x + style.FramePadding.x * 2.0f;
+                    float csvStartX = ImGui::GetWindowContentRegionMax().x - csvBtnW;
+                    if (csvStartX > ImGui::GetCursorPosX() + 10.0f) {
+                        ImGui::SameLine(csvStartX);
+                    } else {
+                        ImGui::SameLine();
+                    }
                     if (ImGui::Button("Copy as CSV")) {
                         std::string csv;
                         for (size_t i = 0; i < gui_headers.size(); ++i) {
@@ -328,6 +357,7 @@ int main(int argc, char** argv) {
                     gui_log.clear();
                 }
                 ImGui::SameLine();
+                ImGui::AlignTextToFramePadding();
                 ImGui::TextDisabled("(Click any previous query to load it into the editor)");
                 ImGui::Separator();
 
@@ -365,11 +395,13 @@ int main(int argc, char** argv) {
         ImGui::NextColumn();
         ImGui::BeginChild("SchemaBrowser", ImVec2(0, 0), false, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
 
-        ImGui::TextColored(tc.accent, "DATABASE SCHEMA");
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextColored(tc.brand, "DATABASE SCHEMA");
         auto tableNames = db.getTableNames();
         ImGui::TextDisabled("Tables in database: %d", (int)tableNames.size());
         ImGui::Spacing();
 
+        ImGui::SetNextItemWidth(-FLT_MIN);
         ImGui::InputTextWithHint("##filter", "Search tables...", table_filter, sizeof(table_filter));
         ImGui::Separator();
 
@@ -418,12 +450,12 @@ int main(int argc, char** argv) {
                         ImGui::Text("%s", col.getName().c_str());
                         ImGui::SameLine();
 
-                        // Colored type badge
+                        // Theme-aware colored type badge
                         std::string typeStr = col.getTypeString();
-                        ImVec4 typeColor = ImVec4(0.5f, 0.7f, 1.0f, 1.0f); // default blue INT
-                        if (typeStr == "DOUBLE" || typeStr == "FLOAT") typeColor = ImVec4(0.3f, 0.9f, 0.8f, 1.0f);
-                        else if (typeStr == "TEXT" || typeStr == "STRING") typeColor = ImVec4(0.85f, 0.5f, 0.95f, 1.0f);
-                        else if (typeStr == "BOOL") typeColor = ImVec4(1.0f, 0.65f, 0.35f, 1.0f);
+                        ImVec4 typeColor = tc.kwColor; // default INT
+                        if (typeStr == "DOUBLE" || typeStr == "FLOAT") typeColor = tc.numColor;
+                        else if (typeStr == "TEXT" || typeStr == "STRING" || typeStr == "VARCHAR") typeColor = tc.strColor;
+                        else if (typeStr == "BOOL" || typeStr == "BOOLEAN") typeColor = tc.typeColor;
 
                         ImGui::TextColored(typeColor, "[%s]", typeStr.c_str());
                     }
